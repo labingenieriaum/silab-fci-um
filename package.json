@@ -1,0 +1,24 @@
+{
+  "name": "silab-fci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SILAB FCI - Sistema de Inventario y Laboratorios de la Facultad de Ciencias e Ingenieria.",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace @silab/backend",
+    "dev:frontend": "npm run dev --workspace @silab/frontend",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "prisma:validate": "npm run prisma:validate --workspace @silab/backend",
+    "prisma:format": "npm run prisma:format --workspace @silab/backend",
+    "prisma:generate": "npm run prisma:generate --workspace @silab/backend"
+  },
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10.0.0"
+  }
+}
+

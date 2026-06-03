@@ -1,0 +1,674 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoUsuario {
+  ADMINISTRADOR
+  COORDINACION_LABORATORIOS
+  DECANO
+  DIRECTOR_PROGRAMA
+  PROFESOR
+  ESTUDIANTE
+  MONITOR
+}
+
+enum TipoUbicacion {
+  EDIFICIO
+  PISO
+  LABORATORIO
+  SALA
+  ALMACEN
+  ESTANTE
+  GABINETE
+  OTRO
+}
+
+enum EstadoEquipo {
+  DISPONIBLE
+  PRESTADO
+  EN_MANTENIMIENTO
+  DANADO
+  BAJA
+  PERDIDO
+  INACTIVO
+}
+
+enum TipoProyecto {
+  AULA
+  INVESTIGACION
+  EXTENSION
+  SEMILLERO
+  GRADO
+  ADMINISTRATIVO
+  OTRO
+}
+
+enum TipoActividad {
+  CLASE
+  PRACTICA
+  INVESTIGACION
+  EXTENSION
+  CAPACITACION
+  EVENTO
+  OTRO
+}
+
+enum TipoUso {
+  ACADEMICO
+  INVESTIGACION
+  EXTENSION
+  ADMINISTRATIVO
+  PROYECTO
+  OTRO
+}
+
+enum EstadoPrestamo {
+  SOLICITADO
+  APROBADO
+  RECHAZADO
+  ENTREGADO
+  DEVUELTO_PARCIAL
+  DEVUELTO
+  VENCIDO
+  CANCELADO
+}
+
+enum EstadoCondicionEquipo {
+  BUENO
+  REGULAR
+  DANADO
+  INCOMPLETO
+  PERDIDO
+  NO_APLICA
+}
+
+enum TipoMovimiento {
+  ENTRADA
+  AJUSTE_POSITIVO
+  AJUSTE_NEGATIVO
+  PRESTAMO
+  DEVOLUCION
+  TRASLADO
+  MANTENIMIENTO_ENTRADA
+  MANTENIMIENTO_SALIDA
+  BAJA
+}
+
+enum TipoMantenimiento {
+  PREVENTIVO
+  CORRECTIVO
+  CALIBRACION
+  REVISION
+  OTRO
+}
+
+enum EstadoMantenimiento {
+  ABIERTO
+  EN_PROCESO
+  FINALIZADO
+  CANCELADO
+}
+
+enum TipoArchivo {
+  IMAGEN
+  FACTURA
+  MANUAL
+  ACTA
+  SOPORTE
+  OTRO
+}
+
+model Facultad {
+  id     Int    @id @default(autoincrement())
+  nombre String
+  sigla  String @unique
+
+  programas    Programa[]
+  laboratorios Laboratorio[]
+  usuarios     Usuario[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("facultades")
+}
+
+model Programa {
+  id         Int    @id @default(autoincrement())
+  facultadId Int    @map("facultad_id")
+  nombre     String
+  codigo     String
+
+  facultad  Facultad   @relation(fields: [facultadId], references: [id])
+  usuarios  Usuario[]
+  materias  Materia[]
+  proyectos Proyecto[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([facultadId, codigo])
+  @@index([facultadId])
+  @@map("programas")
+}
+
+model Rol {
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique
+  descripcion String?
+
+  usuarios Usuario[]
+  permisos RolPermiso[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("roles")
+}
+
+model Permiso {
+  id          Int     @id @default(autoincrement())
+  codigo      String  @unique
+  descripcion String?
+
+  roles RolPermiso[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("permisos")
+}
+
+model RolPermiso {
+  rolId     Int @map("rol_id")
+  permisoId Int @map("permiso_id")
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([rolId, permisoId])
+  @@map("roles_permisos")
+}
+
+model Usuario {
+  id           Int         @id @default(autoincrement())
+  rolId        Int         @map("rol_id")
+  facultadId   Int?        @map("facultad_id")
+  programaId   Int?        @map("programa_id")
+  nombre       String
+  correo       String      @unique
+  documento    String      @unique
+  passwordHash String      @map("password_hash")
+  tipoUsuario  TipoUsuario @map("tipo_usuario")
+  activo       Boolean     @default(true)
+  ultimoAcceso DateTime?   @map("ultimo_acceso")
+
+  rol      Rol       @relation(fields: [rolId], references: [id])
+  facultad Facultad? @relation(fields: [facultadId], references: [id])
+  programa Programa? @relation(fields: [programaId], references: [id])
+
+  prestamosSolicitados    Prestamo[]             @relation("UsuarioSolicitaPrestamo")
+  prestamosAprobados      Prestamo[]             @relation("UsuarioApruebaPrestamo")
+  prestamosRechazados     Prestamo[]             @relation("UsuarioRechazaPrestamo")
+  prestamosEntregados     Prestamo[]             @relation("UsuarioEntregaPrestamo")
+  proyectosResponsable    Proyecto[]             @relation("UsuarioResponsableProyecto")
+  movimientos             InventarioMovimiento[] @relation("UsuarioEjecutaMovimiento")
+  mantenimientos          Mantenimiento[]        @relation("UsuarioResponsableMantenimiento")
+  devolucionesRecibidas   Devolucion[]           @relation("UsuarioRecibeDevolucion")
+  auditorias              Auditoria[]
+  refreshTokens           RefreshToken[]
+  equiposResponsable      Equipo[]               @relation("UsuarioResponsableEquipo")
+  laboratoriosResponsable Laboratorio[]          @relation("UsuarioResponsableLaboratorio")
+  archivosSubidos         Archivo[]              @relation("UsuarioSubeArchivo")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([rolId])
+  @@index([facultadId])
+  @@index([programaId])
+  @@map("usuarios")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  usuarioId Int       @map("usuario_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@map("refresh_tokens")
+}
+
+model Laboratorio {
+  id            Int     @id @default(autoincrement())
+  facultadId    Int     @map("facultad_id")
+  responsableId Int?    @map("responsable_id")
+  nombre        String
+  codigo        String  @unique
+  descripcion   String?
+
+  facultad    Facultad    @relation(fields: [facultadId], references: [id])
+  responsable Usuario?    @relation("UsuarioResponsableLaboratorio", fields: [responsableId], references: [id])
+  ubicaciones Ubicacion[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([facultadId])
+  @@index([responsableId])
+  @@map("laboratorios")
+}
+
+model Ubicacion {
+  id               Int           @id @default(autoincrement())
+  laboratorioId    Int           @map("laboratorio_id")
+  ubicacionPadreId Int?          @map("ubicacion_padre_id")
+  nombre           String
+  tipo             TipoUbicacion
+  descripcion      String?
+  activa           Boolean       @default(true)
+
+  laboratorio    Laboratorio @relation(fields: [laboratorioId], references: [id])
+  ubicacionPadre Ubicacion?  @relation("UbicacionJerarquia", fields: [ubicacionPadreId], references: [id])
+  sububicaciones Ubicacion[] @relation("UbicacionJerarquia")
+
+  equipos            Equipo[]
+  unidades           EquipoUnidad[]
+  movimientosOrigen  InventarioMovimiento[] @relation("MovimientoUbicacionOrigen")
+  movimientosDestino InventarioMovimiento[] @relation("MovimientoUbicacionDestino")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([laboratorioId])
+  @@index([ubicacionPadreId])
+  @@map("ubicaciones")
+}
+
+model CategoriaEquipo {
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique
+  descripcion String?
+
+  equipos Equipo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("categorias_equipos")
+}
+
+model Equipo {
+  id                    Int          @id @default(autoincrement())
+  categoriaId           Int          @map("categoria_id")
+  ubicacionId           Int          @map("ubicacion_id")
+  responsableId         Int?         @map("responsable_id")
+  codigoInterno         String       @unique @map("codigo_interno")
+  nombre                String
+  marca                 String?
+  modelo                String?
+  requiereSerial        Boolean      @default(false) @map("requiere_serial")
+  cantidadTotal         Int          @default(1) @map("cantidad_total")
+  cantidadDisponible    Int          @default(1) @map("cantidad_disponible")
+  cantidadPrestada      Int          @default(0) @map("cantidad_prestada")
+  cantidadMantenimiento Int          @default(0) @map("cantidad_mantenimiento")
+  cantidadBaja          Int          @default(0) @map("cantidad_baja")
+  estado                EstadoEquipo @default(DISPONIBLE)
+  valorEstimado         Decimal      @default(0) @map("valor_estimado") @db.Decimal(12, 2)
+  observaciones         String?
+
+  categoria   CategoriaEquipo @relation(fields: [categoriaId], references: [id])
+  ubicacion   Ubicacion       @relation(fields: [ubicacionId], references: [id])
+  responsable Usuario?        @relation("UsuarioResponsableEquipo", fields: [responsableId], references: [id])
+
+  unidades           EquipoUnidad[]
+  movimientos        InventarioMovimiento[]
+  prestamoDetalles   PrestamoDetalle[]
+  devolucionDetalles DevolucionDetalle[]
+  mantenimientos     Mantenimiento[]
+  archivos           Archivo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([categoriaId])
+  @@index([ubicacionId])
+  @@index([responsableId])
+  @@index([estado])
+  @@map("equipos")
+}
+
+model EquipoUnidad {
+  id            Int          @id @default(autoincrement())
+  equipoId      Int          @map("equipo_id")
+  ubicacionId   Int?         @map("ubicacion_id")
+  codigoInterno String       @unique @map("codigo_interno")
+  serial        String?      @unique
+  estado        EstadoEquipo @default(DISPONIBLE)
+  observaciones String?
+
+  equipo    Equipo     @relation(fields: [equipoId], references: [id])
+  ubicacion Ubicacion? @relation(fields: [ubicacionId], references: [id])
+
+  prestamoDetalles   PrestamoDetalle[]
+  devolucionDetalles DevolucionDetalle[]
+  movimientos        InventarioMovimiento[]
+  mantenimientos     Mantenimiento[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([equipoId])
+  @@index([ubicacionId])
+  @@index([estado])
+  @@map("equipos_unidades")
+}
+
+model Materia {
+  id         Int     @id @default(autoincrement())
+  programaId Int     @map("programa_id")
+  nombre     String
+  codigo     String
+  semestre   Int
+  activa     Boolean @default(true)
+
+  programa  Programa   @relation(fields: [programaId], references: [id])
+  prestamos Prestamo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([programaId, codigo])
+  @@index([programaId])
+  @@map("materias")
+}
+
+model Proyecto {
+  id                     Int          @id @default(autoincrement())
+  programaId             Int          @map("programa_id")
+  responsableId          Int          @map("responsable_id")
+  nombre                 String
+  tipo                   TipoProyecto
+  semilleroInvestigacion String?      @map("semillero_investigacion")
+  descripcion            String?
+  activo                 Boolean      @default(true)
+
+  programa    Programa   @relation(fields: [programaId], references: [id])
+  responsable Usuario    @relation("UsuarioResponsableProyecto", fields: [responsableId], references: [id])
+  prestamos   Prestamo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([programaId])
+  @@index([responsableId])
+  @@map("proyectos")
+}
+
+model Actividad {
+  id          Int           @id @default(autoincrement())
+  nombre      String
+  tipo        TipoActividad
+  descripcion String?
+  activa      Boolean       @default(true)
+
+  prestamos Prestamo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@map("actividades")
+}
+
+model Prestamo {
+  id                      Int            @id @default(autoincrement())
+  codigo                  String         @unique @default(cuid())
+  usuarioSolicitanteId    Int            @map("usuario_solicitante_id")
+  materiaId               Int?           @map("materia_id")
+  proyectoId              Int?           @map("proyecto_id")
+  actividadId             Int?           @map("actividad_id")
+  aprobadoPorId           Int?           @map("aprobado_por_id")
+  rechazadoPorId          Int?           @map("rechazado_por_id")
+  entregadoPorId          Int?           @map("entregado_por_id")
+  tipoUso                 TipoUso        @map("tipo_uso")
+  fechaSolicitud          DateTime       @default(now()) @map("fecha_solicitud")
+  fechaPrestamo           DateTime?      @map("fecha_prestamo")
+  fechaAprobacion         DateTime?      @map("fecha_aprobacion")
+  fechaRechazo            DateTime?      @map("fecha_rechazo")
+  fechaEntrega            DateTime?      @map("fecha_entrega")
+  fechaDevolucionEstimada DateTime       @map("fecha_devolucion_estimada")
+  fechaDevolucionReal     DateTime?      @map("fecha_devolucion_real")
+  estado                  EstadoPrestamo @default(SOLICITADO)
+  observaciones           String?
+  motivoRechazo           String?        @map("motivo_rechazo")
+
+  usuarioSolicitante Usuario    @relation("UsuarioSolicitaPrestamo", fields: [usuarioSolicitanteId], references: [id])
+  materia            Materia?   @relation(fields: [materiaId], references: [id])
+  proyecto           Proyecto?  @relation(fields: [proyectoId], references: [id])
+  actividad          Actividad? @relation(fields: [actividadId], references: [id])
+  aprobadoPor        Usuario?   @relation("UsuarioApruebaPrestamo", fields: [aprobadoPorId], references: [id])
+  rechazadoPor       Usuario?   @relation("UsuarioRechazaPrestamo", fields: [rechazadoPorId], references: [id])
+  entregadoPor       Usuario?   @relation("UsuarioEntregaPrestamo", fields: [entregadoPorId], references: [id])
+
+  detalles     PrestamoDetalle[]
+  devoluciones Devolucion[]
+  movimientos  InventarioMovimiento[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([usuarioSolicitanteId])
+  @@index([materiaId])
+  @@index([proyectoId])
+  @@index([actividadId])
+  @@index([estado])
+  @@index([fechaDevolucionEstimada])
+  @@map("prestamos")
+}
+
+model PrestamoDetalle {
+  id                 Int                    @id @default(autoincrement())
+  prestamoId         Int                    @map("prestamo_id")
+  equipoId           Int                    @map("equipo_id")
+  equipoUnidadId     Int?                   @map("equipo_unidad_id")
+  cantidadSolicitada Int                    @default(1) @map("cantidad_solicitada")
+  cantidadAprobada   Int?                   @map("cantidad_aprobada")
+  cantidadEntregada  Int                    @default(0) @map("cantidad_entregada")
+  cantidadDevuelta   Int                    @default(0) @map("cantidad_devuelta")
+  estadoEntrega      EstadoCondicionEquipo? @map("estado_entrega")
+  estadoDevolucion   EstadoCondicionEquipo? @map("estado_devolucion")
+  observaciones      String?
+
+  prestamo     Prestamo      @relation(fields: [prestamoId], references: [id], onDelete: Cascade)
+  equipo       Equipo        @relation(fields: [equipoId], references: [id])
+  equipoUnidad EquipoUnidad? @relation(fields: [equipoUnidadId], references: [id])
+
+  devolucionDetalles DevolucionDetalle[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([prestamoId])
+  @@index([equipoId])
+  @@index([equipoUnidadId])
+  @@map("prestamo_detalle")
+}
+
+model Devolucion {
+  id              Int      @id @default(autoincrement())
+  prestamoId      Int      @map("prestamo_id")
+  usuarioRecibeId Int      @map("usuario_recibe_id")
+  fechaDevolucion DateTime @default(now()) @map("fecha_devolucion")
+  observaciones   String?
+
+  prestamo      Prestamo @relation(fields: [prestamoId], references: [id])
+  usuarioRecibe Usuario  @relation("UsuarioRecibeDevolucion", fields: [usuarioRecibeId], references: [id])
+
+  detalles    DevolucionDetalle[]
+  movimientos InventarioMovimiento[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([prestamoId])
+  @@index([usuarioRecibeId])
+  @@map("devoluciones")
+}
+
+model DevolucionDetalle {
+  id                Int                   @id @default(autoincrement())
+  devolucionId      Int                   @map("devolucion_id")
+  prestamoDetalleId Int                   @map("prestamo_detalle_id")
+  equipoId          Int                   @map("equipo_id")
+  equipoUnidadId    Int?                  @map("equipo_unidad_id")
+  cantidad          Int
+  estadoDevolucion  EstadoCondicionEquipo @map("estado_devolucion")
+  observaciones     String?
+
+  devolucion      Devolucion      @relation(fields: [devolucionId], references: [id], onDelete: Cascade)
+  prestamoDetalle PrestamoDetalle @relation(fields: [prestamoDetalleId], references: [id])
+  equipo          Equipo          @relation(fields: [equipoId], references: [id])
+  equipoUnidad    EquipoUnidad?   @relation(fields: [equipoUnidadId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([devolucionId])
+  @@index([prestamoDetalleId])
+  @@index([equipoId])
+  @@index([equipoUnidadId])
+  @@map("devolucion_detalle")
+}
+
+model InventarioMovimiento {
+  id                 Int            @id @default(autoincrement())
+  equipoId           Int            @map("equipo_id")
+  equipoUnidadId     Int?           @map("equipo_unidad_id")
+  usuarioId          Int            @map("usuario_id")
+  prestamoId         Int?           @map("prestamo_id")
+  devolucionId       Int?           @map("devolucion_id")
+  mantenimientoId    Int?           @map("mantenimiento_id")
+  ubicacionOrigenId  Int?           @map("ubicacion_origen_id")
+  ubicacionDestinoId Int?           @map("ubicacion_destino_id")
+  tipoMovimiento     TipoMovimiento @map("tipo_movimiento")
+  cantidad           Int
+  cantidadAnterior   Int?           @map("cantidad_anterior")
+  cantidadNueva      Int?           @map("cantidad_nueva")
+  descripcion        String?
+  metadata           Json?
+  fecha              DateTime       @default(now())
+
+  equipo           Equipo         @relation(fields: [equipoId], references: [id])
+  equipoUnidad     EquipoUnidad?  @relation(fields: [equipoUnidadId], references: [id])
+  usuario          Usuario        @relation("UsuarioEjecutaMovimiento", fields: [usuarioId], references: [id])
+  prestamo         Prestamo?      @relation(fields: [prestamoId], references: [id])
+  devolucion       Devolucion?    @relation(fields: [devolucionId], references: [id])
+  mantenimiento    Mantenimiento? @relation(fields: [mantenimientoId], references: [id])
+  ubicacionOrigen  Ubicacion?     @relation("MovimientoUbicacionOrigen", fields: [ubicacionOrigenId], references: [id])
+  ubicacionDestino Ubicacion?     @relation("MovimientoUbicacionDestino", fields: [ubicacionDestinoId], references: [id])
+
+  @@index([equipoId])
+  @@index([equipoUnidadId])
+  @@index([usuarioId])
+  @@index([tipoMovimiento])
+  @@index([fecha])
+  @@map("inventario_movimientos")
+}
+
+model Mantenimiento {
+  id                Int                 @id @default(autoincrement())
+  equipoId          Int                 @map("equipo_id")
+  equipoUnidadId    Int?                @map("equipo_unidad_id")
+  responsableId     Int                 @map("responsable_id")
+  tipoMantenimiento TipoMantenimiento   @map("tipo_mantenimiento")
+  descripcion       String
+  fechaInicio       DateTime            @map("fecha_inicio")
+  fechaFin          DateTime?           @map("fecha_fin")
+  costo             Decimal             @default(0) @db.Decimal(12, 2)
+  estado            EstadoMantenimiento @default(ABIERTO)
+  observaciones     String?
+
+  equipo       Equipo                 @relation(fields: [equipoId], references: [id])
+  equipoUnidad EquipoUnidad?          @relation(fields: [equipoUnidadId], references: [id])
+  responsable  Usuario                @relation("UsuarioResponsableMantenimiento", fields: [responsableId], references: [id])
+  movimientos  InventarioMovimiento[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([equipoId])
+  @@index([equipoUnidadId])
+  @@index([responsableId])
+  @@index([estado])
+  @@map("mantenimientos")
+}
+
+model Archivo {
+  id            Int         @id @default(autoincrement())
+  equipoId      Int         @map("equipo_id")
+  subidoPorId   Int?        @map("subido_por_id")
+  nombreArchivo String      @map("nombre_archivo")
+  tipoArchivo   TipoArchivo @map("tipo_archivo")
+  mimeType      String?     @map("mime_type")
+  tamanoBytes   Int?        @map("tamano_bytes")
+  url           String
+  descripcion   String?
+
+  equipo    Equipo   @relation(fields: [equipoId], references: [id])
+  subidoPor Usuario? @relation("UsuarioSubeArchivo", fields: [subidoPorId], references: [id])
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([equipoId])
+  @@index([subidoPorId])
+  @@map("archivos")
+}
+
+model Auditoria {
+  id              Int      @id @default(autoincrement())
+  usuarioId       Int?     @map("usuario_id")
+  accion          String
+  modulo          String?
+  tablaAfectada   String   @map("tabla_afectada")
+  registroId      Int?     @map("registro_id")
+  datosAnteriores Json?    @map("datos_anteriores")
+  datosNuevos     Json?    @map("datos_nuevos")
+  ip              String?
+  userAgent       String?  @map("user_agent")
+  fecha           DateTime @default(now())
+
+  usuario Usuario? @relation(fields: [usuarioId], references: [id])
+
+  @@index([usuarioId])
+  @@index([tablaAfectada])
+  @@index([registroId])
+  @@index([fecha])
+  @@map("auditoria")
+}
