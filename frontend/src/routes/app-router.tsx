@@ -9,6 +9,7 @@ import { InventoryPage } from "@/pages/inventory-page";
 import { LaboratoriesPage } from "@/pages/laboratories-page";
 import { LocationsPage } from "@/pages/locations-page";
 import { LoginPage } from "@/pages/login-page";
+import { LoansPage } from "@/pages/loans-page";
 import { PlaceholderPage } from "@/pages/placeholder-page";
 import { UsersPage } from "@/pages/users-page";
 
@@ -50,21 +51,11 @@ export const router = createBrowserRouter([
           },
           {
             path: "loans",
-            element: (
-              <PlaceholderPage
-                title="Prestamos"
-                description="Solicitudes, aprobaciones, entregas, vencimientos y devoluciones."
-              />
-            )
+            element: <LoansPage />
           },
           {
             path: "returns",
-            element: (
-              <PlaceholderPage
-                title="Devoluciones"
-                description="Recepcion de equipos y detalle real de devoluciones."
-              />
-            )
+            element: <LoansPage />
           },
           {
             path: "maintenance",

@@ -8,6 +8,7 @@ import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { InventoryModule } from "./inventory/inventory.module";
 import { LaboratoriesModule } from "./laboratories/laboratories.module";
+import { LoansModule } from "./loans/loans.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { validateEnv } from "./config/env.validation";
 import { RolesModule } from "./roles/roles.module";
@@ -26,7 +27,8 @@ import { UsersModule } from "./users/users.module";
     RolesModule,
     AcademicModule,
     LaboratoriesModule,
-    InventoryModule
+    InventoryModule,
+    LoansModule
   ],
   controllers: [AppController],
   providers: [

@@ -17,6 +17,9 @@ export type TipoUbicacion =
   | "ALMACEN"
   | "ESTANTE"
   | "GABINETE"
+  | "NIVEL"
+  | "CAJON"
+  | "CAJA"
   | "OTRO";
 
 export type TipoMovimiento =

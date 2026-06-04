@@ -197,3 +197,39 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `GET /api/v1/faculties`: correcto, devuelve FCI.
 - `GET /api/v1/laboratories`, `GET /api/v1/locations` y `GET /api/v1/equipment`: correcto con la nueva logica de alcance.
 - El navegador integrado no permitio escribir en los campos de login durante esta verificacion por una limitacion del conector de navegador, pero Vite recargo los cambios y la validacion API/build quedo correcta.
+
+## Fase 4 completada
+
+- Se implemento modulo backend `LoansModule` para prestamos, aprobaciones, entregas y devoluciones.
+- Se agregaron DTOs con `class-validator` para solicitud, filtros, aprobacion, rechazo, entrega y devolucion.
+- Se implementaron rutas reales protegidas por permisos:
+  - `GET /api/v1/loans`
+  - `POST /api/v1/loans` con `prestamos:solicitar`
+  - `GET /api/v1/loans/:id`
+  - `PATCH /api/v1/loans/:id/approve` con `prestamos:aprobar`
+  - `PATCH /api/v1/loans/:id/reject` con `prestamos:aprobar`
+  - `PATCH /api/v1/loans/:id/deliver` con `prestamos:entregar`
+  - `POST /api/v1/loans/:id/returns` con `devoluciones:registrar`
+  - `GET /api/v1/returns`
+- Se agregaron reglas de negocio para:
+  - Validar disponibilidad al solicitar/aprobar/entregar.
+  - Exigir unidad fisica cuando el equipo requiere serial.
+  - Cambiar cantidades de equipos al entregar y devolver.
+  - Marcar unidades como `PRESTADO`, `DISPONIBLE`, `DANADO` o `PERDIDO` segun el flujo.
+  - Registrar movimientos `PRESTAMO` y `DEVOLUCION` en inventario.
+  - Manejar estados `SOLICITADO`, `APROBADO`, `RECHAZADO`, `ENTREGADO`, `DEVUELTO_PARCIAL`, `DEVUELTO` y `VENCIDO`.
+- Se aplico alcance por facultad en consultas y operaciones de prestamos/devoluciones segun los equipos asociados.
+- Se agrego pagina frontend real `frontend/src/pages/loans-page.tsx`.
+- Se agregaron tipos frontend reales en `frontend/src/types/loans.ts`.
+- Se conectaron las rutas `/loans` y `/returns`, retirando placeholders.
+- Se ajusto la navegacion para mostrar prestamos a usuarios con permisos de solicitar, aprobar o entregar, y devoluciones a usuarios con permiso de registrar devoluciones.
+- Se creo `backend/.env` desde `backend/.env.example` para permitir la generacion local de Prisma.
+
+## Validaciones fase 4
+
+- `npm.cmd install`: correcto; reporta 3 vulnerabilidades moderadas ya conocidas del ecosistema Prisma.
+- `npm.cmd run prisma:generate`: correcto.
+- `npm.cmd run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run build --workspace @silab/backend`: correcto.
+- `npm.cmd run lint --workspace @silab/frontend`: correcto.
+- `npm.cmd run build --workspace @silab/frontend`: correcto.

@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Boxes, CheckCircle2, Loader2, Plus, Search, Wrench, XCircle } from "lucide-react";
+import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -108,7 +109,7 @@ export function EquipmentPage() {
 
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const categories = categoriesQuery.data ?? [];
-  const locations = locationsQuery.data?.data ?? [];
+  const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
 
   const summary = useMemo(
     () =>
@@ -279,19 +280,14 @@ export function EquipmentPage() {
                   </select>
                 </Field>
                 <Field label="Ubicacion">
-                  <select
-                    className="input-control"
+                  <LocationCombobox
+                    locations={locations}
                     value={form.ubicacionId}
-                    onChange={(event) => updateForm("ubicacionId", event.target.value)}
+                    onChange={(value) => updateForm("ubicacionId", value)}
+                    placeholder="Seleccionar"
+                    emptyLabel="Seleccionar"
                     required
-                  >
-                    <option value="">Seleccionar</option>
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.laboratorio.codigo} - {location.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Field>
               </div>
 
@@ -460,3 +456,4 @@ function getStateBadgeClass(state: Equipment["estado"]) {
   }
   return "badge badge-gray";
 }
+
