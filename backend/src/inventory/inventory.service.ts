@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { EstadoEquipo, TipoMovimiento, type Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { getUserFacultyScope } from "../common/faculty-scope";
 import type { JwtUser } from "../common/types/jwt-user";
 import { PrismaService } from "../prisma/prisma.service";
@@ -71,6 +72,8 @@ const equipmentSelect = {
   ubicacionId: true,
   responsableId: true,
   codigoInterno: true,
+  codigoBarras: true,
+  qrToken: true,
   nombre: true,
   marca: true,
   modelo: true,
@@ -261,9 +264,27 @@ export class InventoryService {
       OR: query.search
         ? [
             { codigoInterno: { contains: query.search, mode: "insensitive" } },
+            { codigoBarras: { contains: query.search, mode: "insensitive" } },
+            { qrToken: { contains: query.search, mode: "insensitive" } },
             { nombre: { contains: query.search, mode: "insensitive" } },
             { marca: { contains: query.search, mode: "insensitive" } },
-            { modelo: { contains: query.search, mode: "insensitive" } }
+            { modelo: { contains: query.search, mode: "insensitive" } },
+            {
+              unidades: {
+                some: {
+                  deletedAt: null,
+                  codigoInterno: { contains: query.search, mode: "insensitive" }
+                }
+              }
+            },
+            {
+              unidades: {
+                some: {
+                  deletedAt: null,
+                  serial: { contains: query.search, mode: "insensitive" }
+                }
+              }
+            }
           ]
         : undefined
     };
@@ -309,6 +330,53 @@ export class InventoryService {
     return equipment;
   }
 
+  async lookupEquipment(user: JwtUser, code?: string) {
+    const scannedCode = normalizeScannedEquipmentCode(code);
+    if (!scannedCode) {
+      throw new BadRequestException("El codigo escaneado es requerido.");
+    }
+
+    const scopedFacultyId = getUserFacultyScope(user);
+    const equipment = await this.prisma.equipo.findFirst({
+      where: {
+        deletedAt: null,
+        ubicacion: {
+          laboratorio: {
+            facultadId: scopedFacultyId
+          }
+        },
+        OR: [
+          { codigoInterno: { equals: scannedCode, mode: "insensitive" } },
+          { codigoBarras: { equals: scannedCode, mode: "insensitive" } },
+          { qrToken: { equals: scannedCode, mode: "insensitive" } },
+          {
+            unidades: {
+              some: {
+                deletedAt: null,
+                codigoInterno: { equals: scannedCode, mode: "insensitive" }
+              }
+            }
+          },
+          {
+            unidades: {
+              some: {
+                deletedAt: null,
+                serial: { equals: scannedCode, mode: "insensitive" }
+              }
+            }
+          }
+        ]
+      },
+      select: equipmentDetailSelect
+    });
+
+    if (!equipment) {
+      throw new NotFoundException("Equipo no encontrado para el codigo escaneado.");
+    }
+
+    return equipment;
+  }
+
   async createEquipment(user: JwtUser, dto: CreateEquipmentDto) {
     const units = dto.unidades ?? [];
     const total = dto.cantidadTotal ?? (units.length > 0 ? units.length : 1);
@@ -326,6 +394,8 @@ export class InventoryService {
             ubicacionId: dto.ubicacionId,
             responsableId: dto.responsableId ?? null,
             codigoInterno: dto.codigoInterno.trim().toUpperCase(),
+            codigoBarras: cleanOptionalIdentifier(dto.codigoBarras),
+            qrToken: createEquipmentQrToken(),
             nombre: dto.nombre.trim(),
             marca: cleanNullableText(dto.marca),
             modelo: cleanNullableText(dto.modelo),
@@ -369,6 +439,7 @@ export class InventoryService {
             descripcion: "Registro inicial de equipo",
             metadata: {
               codigoInterno: dto.codigoInterno.trim().toUpperCase(),
+              codigoBarras: cleanOptionalIdentifier(dto.codigoBarras),
               requiereSerial: requiresSerial
             }
           }
@@ -380,7 +451,7 @@ export class InventoryService {
         });
       });
     } catch (error) {
-      handleKnownDatabaseError(error, "Ya existe un equipo o unidad con ese codigo/serial.");
+      handleKnownDatabaseError(error, "Ya existe un equipo o unidad con ese codigo, codigo de barras o serial.");
     }
   }
 
@@ -404,6 +475,8 @@ export class InventoryService {
           ubicacionId: dto.ubicacionId,
           responsableId: dto.responsableId,
           codigoInterno: dto.codigoInterno?.trim().toUpperCase(),
+          codigoBarras:
+            dto.codigoBarras === undefined ? undefined : cleanOptionalIdentifier(dto.codigoBarras),
           nombre: dto.nombre?.trim(),
           marca: dto.marca === undefined ? undefined : cleanNullableText(dto.marca),
           modelo: dto.modelo === undefined ? undefined : cleanNullableText(dto.modelo),
@@ -416,7 +489,7 @@ export class InventoryService {
         select: equipmentDetailSelect
       });
     } catch (error) {
-      handleKnownDatabaseError(error, "Ya existe un equipo con ese codigo interno.");
+      handleKnownDatabaseError(error, "Ya existe un equipo con ese codigo interno o codigo de barras.");
     }
   }
 
@@ -1039,6 +1112,27 @@ function resolveEquipmentState(counts: {
 function cleanNullableText(value?: string | null) {
   const cleaned = value?.trim();
   return cleaned ? cleaned : null;
+}
+
+function cleanOptionalIdentifier(value?: string | null) {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : null;
+}
+
+function createEquipmentQrToken() {
+  return `eq_${randomUUID().replace(/-/g, "")}`;
+}
+
+function normalizeScannedEquipmentCode(value?: string | null) {
+  const cleaned = value?.trim();
+  if (!cleaned) {
+    return null;
+  }
+
+  return cleaned
+    .replace(/^SILAB-FCI:EQUIPO:/i, "")
+    .replace(/^SILAB:EQ:/i, "")
+    .trim();
 }
 
 function handleKnownDatabaseError(error: unknown, uniqueMessage: string): never {

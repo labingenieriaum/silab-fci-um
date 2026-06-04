@@ -13,6 +13,7 @@ export type TipoUbicacion =
   | "EDIFICIO"
   | "PISO"
   | "LABORATORIO"
+  | "SALON"
   | "SALA"
   | "ALMACEN"
   | "ESTANTE"
@@ -98,6 +99,8 @@ export interface Equipment {
   ubicacionId: number;
   responsableId: number | null;
   codigoInterno: string;
+  codigoBarras: string | null;
+  qrToken: string;
   nombre: string;
   marca: string | null;
   modelo: string | null;

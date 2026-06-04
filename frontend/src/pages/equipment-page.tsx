@@ -1,7 +1,21 @@
 import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, CheckCircle2, Loader2, Plus, Search, Wrench, XCircle } from "lucide-react";
+import {
+  Barcode,
+  Boxes,
+  CheckCircle2,
+  Loader2,
+  Pencil,
+  Plus,
+  QrCode,
+  Save,
+  Search,
+  Trash2,
+  Wrench,
+  X,
+  XCircle
+} from "lucide-react";
 import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +39,7 @@ interface EquipmentFormState {
   categoriaId: string;
   ubicacionId: string;
   codigoInterno: string;
+  codigoBarras: string;
   nombre: string;
   marca: string;
   modelo: string;
@@ -39,6 +54,7 @@ const initialForm: EquipmentFormState = {
   categoriaId: "",
   ubicacionId: "",
   codigoInterno: "",
+  codigoBarras: "",
   nombre: "",
   marca: "",
   modelo: "",
@@ -53,6 +69,7 @@ export function EquipmentPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<EquipmentFormState>(initialForm);
+  const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const equipmentQuery = useQuery({
@@ -81,6 +98,7 @@ export function EquipmentPage() {
           categoriaId: Number(payload.categoriaId),
           ubicacionId: Number(payload.ubicacionId),
           codigoInterno: payload.codigoInterno,
+          codigoBarras: payload.codigoBarras || undefined,
           nombre: payload.nombre,
           marca: payload.marca || undefined,
           modelo: payload.modelo || undefined,
@@ -107,9 +125,53 @@ export function EquipmentPage() {
     onError: (error) => setFeedback(error instanceof Error ? error.message : "No fue posible crear el equipo.")
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: EquipmentFormState }) =>
+      apiRequest<Equipment>(`/equipment/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          categoriaId: Number(payload.categoriaId),
+          ubicacionId: Number(payload.ubicacionId),
+          codigoInterno: payload.codigoInterno,
+          codigoBarras: payload.codigoBarras,
+          nombre: payload.nombre,
+          marca: payload.marca,
+          modelo: payload.modelo,
+          valorEstimado: Number(payload.valorEstimado || 0),
+          observaciones: payload.observaciones
+        })
+      }),
+    onSuccess: async () => {
+      setFeedback("Equipo actualizado correctamente.");
+      setEditingEquipment(null);
+      setForm(initialForm);
+      await queryClient.invalidateQueries({ queryKey: ["equipment"] });
+      await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+    },
+    onError: (error) =>
+      setFeedback(error instanceof Error ? error.message : "No fue posible actualizar el equipo.")
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest<Equipment>(`/equipment/${id}`, { method: "DELETE" }),
+    onSuccess: async (_, id) => {
+      if (editingEquipment?.id === id) {
+        setEditingEquipment(null);
+        setForm(initialForm);
+      }
+      setFeedback("Equipo eliminado correctamente.");
+      await queryClient.invalidateQueries({ queryKey: ["equipment"] });
+      await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+    },
+    onError: (error) =>
+      setFeedback(error instanceof Error ? error.message : "No fue posible eliminar el equipo.")
+  });
+
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const categories = categoriesQuery.data ?? [];
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
+  const isEditing = editingEquipment !== null;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const summary = useMemo(
     () =>
@@ -145,6 +207,38 @@ export function EquipmentPage() {
     }));
   }
 
+  function beginEdit(item: Equipment) {
+    setFeedback(null);
+    setEditingEquipment(item);
+    setForm({
+      categoriaId: String(item.categoriaId),
+      ubicacionId: String(item.ubicacionId),
+      codigoInterno: item.codigoInterno,
+      codigoBarras: item.codigoBarras ?? "",
+      nombre: item.nombre,
+      marca: item.marca ?? "",
+      modelo: item.modelo ?? "",
+      requiereSerial: item.requiereSerial,
+      cantidadTotal: String(item.cantidadTotal),
+      valorEstimado: String(item.valorEstimado ?? 0),
+      observaciones: item.observaciones ?? "",
+      unidades: []
+    });
+  }
+
+  function cancelEdit() {
+    setEditingEquipment(null);
+    setForm(initialForm);
+    setFeedback(null);
+  }
+
+  function handleDelete(item: Equipment) {
+    const confirmed = window.confirm(`Eliminar el equipo ${item.codigoInterno} - ${item.nombre}?`);
+    if (confirmed) {
+      deleteMutation.mutate(item.id);
+    }
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
@@ -152,8 +246,12 @@ export function EquipmentPage() {
       setFeedback("Selecciona categoria y ubicacion.");
       return;
     }
-    if (form.requiereSerial && form.unidades.some((unit) => !unit.codigoInterno.trim())) {
+    if (!isEditing && form.requiereSerial && form.unidades.some((unit) => !unit.codigoInterno.trim())) {
       setFeedback("Cada unidad serializada requiere codigo interno.");
+      return;
+    }
+    if (editingEquipment) {
+      updateMutation.mutate({ id: editingEquipment.id, payload: form });
       return;
     }
     createMutation.mutate(form);
@@ -174,7 +272,7 @@ export function EquipmentPage() {
             className="h-full w-64 bg-transparent text-sm outline-none"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar equipo"
+            placeholder="Buscar por equipo, barras o QR"
           />
         </div>
       </section>
@@ -199,7 +297,7 @@ export function EquipmentPage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[1040px] text-sm">
+              <table className="w-full min-w-[1180px] text-sm">
                 <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">Equipo</th>
@@ -210,6 +308,7 @@ export function EquipmentPage() {
                     <th className="px-4 py-3 text-right font-semibold">Prestado</th>
                     <th className="px-4 py-3 text-right font-semibold">Manto.</th>
                     <th className="px-4 py-3 text-left font-semibold">Estado</th>
+                    <th className="px-4 py-3 text-right font-semibold">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -219,7 +318,19 @@ export function EquipmentPage() {
                         <div className="font-medium">{item.nombre}</div>
                         <div className="text-xs text-muted-foreground">
                           {item.codigoInterno}
-                          {item.requiereSerial ? ` · ${item._count.unidades} unidades` : ""}
+                          {item.requiereSerial ? ` - ${item._count.unidades} unidades` : ""}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
+                          {item.codigoBarras && (
+                            <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1">
+                              <Barcode className="h-3 w-3" />
+                              Barras: {item.codigoBarras}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-2 py-1">
+                            <QrCode className="h-3 w-3" />
+                            QR: {getShortQrToken(item.qrToken)}
+                          </span>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {[item.marca, item.modelo].filter(Boolean).join(" ") || "Sin marca/modelo"}
@@ -239,11 +350,32 @@ export function EquipmentPage() {
                       <td className="px-4 py-3">
                         <span className={getStateBadgeClass(item.estado)}>{formatEnum(item.estado)}</span>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Editar equipo"
+                            onClick={() => beginEdit(item)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Eliminar equipo"
+                            disabled={deleteMutation.isPending}
+                            onClick={() => handleDelete(item)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {!equipment.length && (
                     <tr>
-                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={8}>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={9}>
                         No hay equipos registrados para los filtros actuales.
                       </td>
                     </tr>
@@ -257,8 +389,12 @@ export function EquipmentPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Plus className="h-4 w-4 text-primary" />
-              Registrar equipo
+              {isEditing ? (
+                <Pencil className="h-4 w-4 text-primary" />
+              ) : (
+                <Plus className="h-4 w-4 text-primary" />
+              )}
+              {isEditing ? "Editar equipo" : "Registrar equipo"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -300,6 +436,17 @@ export function EquipmentPage() {
                     required
                   />
                 </Field>
+                <Field label="Codigo de barras">
+                  <input
+                    className="input-control"
+                    value={form.codigoBarras}
+                    onChange={(event) => updateForm("codigoBarras", event.target.value)}
+                    placeholder="Opcional"
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3">
                 <Field label="Nombre">
                   <input
                     className="input-control"
@@ -309,6 +456,18 @@ export function EquipmentPage() {
                   />
                 </Field>
               </div>
+
+              {editingEquipment && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 font-medium text-foreground">
+                    <QrCode className="h-4 w-4 text-primary" />
+                    QR del equipo
+                  </div>
+                  <code className="mt-2 block break-all rounded-md bg-white px-2 py-1">
+                    {getQrPayload(editingEquipment.qrToken)}
+                  </code>
+                </div>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Marca">
@@ -342,6 +501,7 @@ export function EquipmentPage() {
                   <input
                     type="checkbox"
                     checked={form.requiereSerial}
+                    disabled={isEditing}
                     onChange={(event) => updateForm("requiereSerial", event.target.checked)}
                   />
                   Requiere serial
@@ -352,13 +512,14 @@ export function EquipmentPage() {
                     type="number"
                     min="1"
                     value={form.cantidadTotal}
+                    disabled={isEditing}
                     onChange={(event) => updateForm("cantidadTotal", event.target.value)}
                     required
                   />
                 </Field>
               </div>
 
-              {form.requiereSerial && (
+              {!isEditing && form.requiereSerial && (
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
                   <p className="text-sm font-medium">Unidades serializadas</p>
                   {form.unidades.map((unit, index) => (
@@ -400,16 +561,41 @@ export function EquipmentPage() {
                   {feedback}
                 </div>
               )}
-              <Button className="w-full" type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Registrar equipo
-              </Button>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {isEditing && (
+                  <Button type="button" variant="outline" onClick={cancelEdit} disabled={isSaving}>
+                    <X className="h-4 w-4" />
+                    Cancelar
+                  </Button>
+                )}
+                <Button className={isEditing ? "" : "sm:col-span-2"} type="submit" disabled={isSaving}>
+                  {isSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isEditing ? (
+                    <Save className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  {isEditing ? "Guardar cambios" : "Registrar equipo"}
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>
       </section>
     </div>
   );
+}
+
+function getQrPayload(qrToken: string) {
+  return `SILAB-FCI:EQUIPO:${qrToken}`;
+}
+
+function getShortQrToken(qrToken: string) {
+  if (qrToken.length <= 14) {
+    return qrToken;
+  }
+  return `${qrToken.slice(0, 10)}...`;
 }
 
 function Metric({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {

@@ -20,6 +20,7 @@ enum TipoUbicacion {
   EDIFICIO
   PISO
   LABORATORIO
+  SALON
   SALA
   ALMACEN
   ESTANTE
@@ -325,6 +326,8 @@ model Equipo {
   ubicacionId           Int          @map("ubicacion_id")
   responsableId         Int?         @map("responsable_id")
   codigoInterno         String       @unique @map("codigo_interno")
+  codigoBarras          String?      @unique @map("codigo_barras")
+  qrToken               String       @unique @map("qr_token")
   nombre                String
   marca                 String?
   modelo                String?

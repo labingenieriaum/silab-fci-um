@@ -13,6 +13,7 @@ const locationTypes: TipoUbicacion[] = [
   "EDIFICIO",
   "PISO",
   "LABORATORIO",
+  "SALON",
   "SALA",
   "ALMACEN",
   "ESTANTE",

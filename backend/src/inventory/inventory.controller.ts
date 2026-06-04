@@ -65,6 +65,11 @@ export class InventoryController {
     return this.inventoryService.createEquipment(user, dto);
   }
 
+  @Get("equipment/lookup")
+  lookupEquipment(@CurrentUser() user: JwtUser, @Query("code") code?: string) {
+    return this.inventoryService.lookupEquipment(user, code);
+  }
+
   @Get("equipment/:id/units")
   findEquipmentUnits(@CurrentUser() user: JwtUser, @Param("id", ParseIntPipe) id: number) {
     return this.inventoryService.findEquipmentUnits(user, id);
