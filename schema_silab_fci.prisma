@@ -24,6 +24,9 @@ enum TipoUbicacion {
   ALMACEN
   ESTANTE
   GABINETE
+  NIVEL
+  CAJON
+  CAJA
   OTRO
 }
 

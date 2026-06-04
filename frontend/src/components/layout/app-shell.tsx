@@ -36,6 +36,7 @@ interface NavItem {
   href: string;
   icon: ComponentType<{ className?: string }>;
   permission?: string;
+  permissions?: string[];
 }
 
 const navGroups = [
@@ -46,8 +47,13 @@ const navGroups = [
   {
     label: "Operacion",
     items: [
-      { label: "Prestamos", href: "/loans", icon: CalendarCheck },
-      { label: "Devoluciones", href: "/returns", icon: RotateCcw },
+      {
+        label: "Prestamos",
+        href: "/loans",
+        icon: CalendarCheck,
+        permissions: ["prestamos:solicitar", "prestamos:aprobar", "prestamos:entregar"]
+      },
+      { label: "Devoluciones", href: "/returns", icon: RotateCcw, permission: "devoluciones:registrar" },
       { label: "Mantenimientos", href: "/maintenance", icon: Wrench }
     ]
   },
@@ -83,7 +89,12 @@ const navGroups = [
 
 const mobileNav = [
   { label: "Inicio", href: "/", icon: Home },
-  { label: "Prestamos", href: "/loans", icon: CalendarCheck },
+  {
+    label: "Prestamos",
+    href: "/loans",
+    icon: CalendarCheck,
+    permissions: ["prestamos:solicitar", "prestamos:aprobar", "prestamos:entregar"]
+  },
   { label: "Inventario", href: "/inventory", icon: Boxes, permission: "inventario:gestionar" },
   { label: "Usuarios", href: "/users", icon: Users, permission: "usuarios:gestionar" },
   { label: "Reportes", href: "/reports", icon: BarChart3 }
@@ -110,13 +121,11 @@ export function AppShell() {
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.permission || hasPermission(item.permission))
+      items: group.items.filter((item) => canSeeNavItem(item, hasPermission))
     }))
     .filter((group) => group.items.length > 0);
 
-  const visibleMobileNav = mobileNav.filter(
-    (item) => !item.permission || hasPermission(item.permission)
-  );
+  const visibleMobileNav = mobileNav.filter((item) => canSeeNavItem(item, hasPermission));
 
   return (
     <div className="min-h-screen bg-background">
@@ -259,4 +268,11 @@ export function AppShell() {
       </nav>
     </div>
   );
+}
+
+function canSeeNavItem(item: NavItem, hasPermission: (permission: string) => boolean) {
+  if (item.permissions?.length) {
+    return item.permissions.some((permission) => hasPermission(permission));
+  }
+  return !item.permission || hasPermission(item.permission);
 }
