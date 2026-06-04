@@ -33,6 +33,10 @@ export class UpdateEquipmentDto {
   codigoInterno?: string;
 
   @IsString()
+  @IsOptional()
+  codigoBarras?: string | null;
+
+  @IsString()
   @MinLength(2)
   @IsOptional()
   nombre?: string;
