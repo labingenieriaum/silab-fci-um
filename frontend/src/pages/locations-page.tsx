@@ -5,6 +5,7 @@ import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import { formatEnum } from "@/lib/format";
 import type { Laboratory, Location, PaginatedResponse, TipoUbicacion } from "@/types/inventory";
@@ -101,7 +102,16 @@ export function LocationsPage() {
   });
 
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
-  const laboratories = laboratoriesQuery.data?.data ?? [];
+  const laboratories = useMemo(() => laboratoriesQuery.data?.data ?? [], [laboratoriesQuery.data]);
+  const laboratoryOptions = useMemo(
+    () =>
+      laboratories.map((laboratory) => ({
+        value: String(laboratory.id),
+        label: `${laboratory.codigo} - ${laboratory.nombre}`,
+        searchText: `${laboratory.codigo} ${laboratory.nombre} ${laboratory.facultad?.sigla ?? ""}`
+      })),
+    [laboratories]
+  );
 
   const excludedParentIds = useMemo(
     () => (editingLocationId ? collectDescendantIds(locations, editingLocationId) : new Set<number>()),
@@ -123,6 +133,27 @@ export function LocationsPage() {
         !laboratoryFilter || location.laboratorioId === Number(laboratoryFilter)
       ),
     [laboratoryFilter, locations]
+  );
+  const parentFilterSelectOptions = useMemo(
+    () => [
+      { value: "none", label: "Sin padre", searchText: "sin padre" },
+      ...parentFilterOptions.map((location) => ({
+        value: String(location.id),
+        label: `${location.nombre} - ${formatEnum(location.tipo)}`,
+        description: location.laboratorio.nombre,
+        searchText: `${location.nombre} ${location.laboratorio.nombre} ${location.laboratorio.codigo} ${formatEnum(location.tipo)}`
+      }))
+    ],
+    [parentFilterOptions]
+  );
+  const locationTypeOptions = useMemo(
+    () =>
+      locationTypes.map((type) => ({
+        value: type,
+        label: formatEnum(type),
+        searchText: `${type} ${formatEnum(type)}`
+      })),
+    []
   );
 
   const visibleLocations = useMemo(
@@ -180,21 +211,18 @@ export function LocationsPage() {
             Estructura fisica jerarquica donde se asignan equipos y unidades.
           </p>
         </div>
-        <select
-          className="input-control max-w-xs"
+        <SearchableSelect
+          className="max-w-xs"
+          options={laboratoryOptions}
           value={laboratoryFilter}
-          onChange={(event) => {
-            setLaboratoryFilter(event.target.value);
+          onChange={(value) => {
+            setLaboratoryFilter(value);
             setParentFilter("");
           }}
-        >
-          <option value="">Todos los laboratorios</option>
-          {laboratories.map((laboratory) => (
-            <option key={laboratory.id} value={laboratory.id}>
-              {laboratory.nombre}
-            </option>
-          ))}
-        </select>
+          placeholder="Todos los laboratorios"
+          searchPlaceholder="Buscar por codigo o nombre"
+          emptyLabel="Todos los laboratorios"
+        />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
@@ -214,19 +242,14 @@ export function LocationsPage() {
                   placeholder="Buscar ubicacion por nombre"
                 />
               </div>
-              <select
-                className="input-control"
+              <SearchableSelect
+                options={parentFilterSelectOptions}
                 value={parentFilter}
-                onChange={(event) => setParentFilter(event.target.value)}
-              >
-                <option value="">Todos los padres</option>
-                <option value="none">Sin padre</option>
-                {parentFilterOptions.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.nombre}
-                  </option>
-                ))}
-              </select>
+                onChange={setParentFilter}
+                placeholder="Todos los padres"
+                searchPlaceholder="Buscar padre por nombre o laboratorio"
+                emptyLabel="Todos los padres"
+              />
             </div>
           </CardHeader>
           <CardContent>
@@ -321,25 +344,21 @@ export function LocationsPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <Field label="Laboratorio">
-                <select
-                  className="input-control"
+                <SearchableSelect
+                  options={laboratoryOptions}
                   value={form.laboratorioId}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     setForm((current) => ({
                       ...current,
-                      laboratorioId: event.target.value,
+                      laboratorioId: value,
                       ubicacionPadreId: ""
                     }))
                   }
+                  placeholder="Seleccionar laboratorio"
+                  searchPlaceholder="Buscar por codigo o nombre"
+                  emptyLabel="Seleccionar"
                   required
-                >
-                  <option value="">Seleccionar</option>
-                  {laboratories.map((laboratory) => (
-                    <option key={laboratory.id} value={laboratory.id}>
-                      {laboratory.nombre}
-                    </option>
-                  ))}
-                </select>
+                />
               </Field>
 
               <Field label="Ubicacion padre">
@@ -367,22 +386,19 @@ export function LocationsPage() {
                   />
                 </Field>
                 <Field label="Tipo">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={locationTypeOptions}
                     value={form.tipo}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       setForm((current) => ({
                         ...current,
-                        tipo: event.target.value as TipoUbicacion
+                        tipo: value as TipoUbicacion
                       }))
                     }
-                  >
-                    {locationTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {formatEnum(type)}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Seleccionar tipo"
+                    searchPlaceholder="Buscar tipo de ubicacion"
+                    emptyLabel="Seleccionar"
+                  />
                 </Field>
               </div>
 

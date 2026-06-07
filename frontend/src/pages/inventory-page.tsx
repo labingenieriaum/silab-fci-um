@@ -2,11 +2,14 @@ import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightLeft, Boxes, ClipboardList, Loader2, Plus, RotateCw } from "lucide-react";
+import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import { formatDateTime, formatEnum } from "@/lib/format";
+import { formatLocationPathById } from "@/lib/location-path";
 import type {
   Equipment,
   InventoryMovement,
@@ -32,6 +35,38 @@ const initialForm: MovementFormState = {
   ubicacionDestinoId: "",
   descripcion: ""
 };
+
+const movementActions: Array<{
+  value: MovementAction;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "ENTRADA",
+    label: "Entrada",
+    description: "Suma nuevas unidades disponibles al equipo. Usalo cuando ingresa inventario nuevo."
+  },
+  {
+    value: "AJUSTE_POSITIVO",
+    label: "Ajuste positivo",
+    description: "Corrige el conteo aumentando disponibilidad sin registrar una compra o ingreso formal."
+  },
+  {
+    value: "AJUSTE_NEGATIVO",
+    label: "Ajuste negativo",
+    description: "Corrige el conteo reduciendo disponibilidad por diferencia fisica de inventario."
+  },
+  {
+    value: "BAJA",
+    label: "Baja",
+    description: "Retira unidades disponibles por descarte, perdida administrativa u obsolescencia."
+  },
+  {
+    value: "TRASLADO",
+    label: "Traslado",
+    description: "Mueve el equipo a otra ubicacion fisica. Requiere indicar la nueva ubicacion."
+  }
+];
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
@@ -104,8 +139,29 @@ export function InventoryPage() {
   });
 
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
-  const movements = movementsQuery.data?.data ?? [];
-  const locations = locationsQuery.data?.data ?? [];
+  const movements = useMemo(() => movementsQuery.data?.data ?? [], [movementsQuery.data]);
+  const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
+  const equipmentOptions = useMemo(
+    () =>
+      equipment.map((item) => ({
+        value: String(item.id),
+        label: `${item.codigoInterno} - ${item.nombre}`,
+        description: item.categoria.nombre,
+        searchText: `${item.codigoInterno} ${item.codigoBarras ?? ""} ${item.nombre} ${item.categoria.nombre}`
+      })),
+    [equipment]
+  );
+  const movementActionOptions = useMemo(
+    () =>
+      movementActions.map((action) => ({
+        value: action.value,
+        label: action.label,
+        description: action.description,
+        searchText: `${action.label} ${action.description}`
+      })),
+    []
+  );
+  const selectedAction = movementActions.find((action) => action.value === form.action);
 
   const summary = useMemo(
     () =>
@@ -199,9 +255,25 @@ export function InventoryPage() {
                       </td>
                       <td className="px-4 py-3 text-right">{movement.cantidad}</td>
                       <td className="px-4 py-3">
-                        {movement.ubicacionDestino?.nombre ??
-                          movement.ubicacionOrigen?.nombre ??
-                          "Sin ubicacion"}
+                        <div>
+                          {formatLocationPathById(
+                            movement.ubicacionDestinoId ?? movement.ubicacionOrigenId,
+                            locations,
+                            movement.ubicacionDestino?.nombre ??
+                              movement.ubicacionOrigen?.nombre ??
+                              "Sin ubicacion"
+                          )}
+                        </div>
+                        {movement.ubicacionOrigenId && movement.ubicacionDestinoId && (
+                          <div className="text-xs text-muted-foreground">
+                            Desde{" "}
+                            {formatLocationPathById(
+                              movement.ubicacionOrigenId,
+                              locations,
+                              movement.ubicacionOrigen?.nombre ?? "Sin ubicacion"
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">{movement.usuario.nombre}</td>
                     </tr>
@@ -229,34 +301,27 @@ export function InventoryPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <Field label="Equipo">
-                <select
-                  className="input-control"
+                <SearchableSelect
+                  options={equipmentOptions}
                   value={form.equipoId}
-                  onChange={(event) => updateForm("equipoId", event.target.value)}
+                  onChange={(value) => updateForm("equipoId", value)}
+                  placeholder="Seleccionar equipo"
+                  searchPlaceholder="Buscar por nombre, codigo o categoria"
+                  emptyLabel="Seleccionar"
                   required
-                >
-                  <option value="">Seleccionar</option>
-                  {equipment.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.codigoInterno} - {item.nombre}
-                    </option>
-                  ))}
-                </select>
+                />
               </Field>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tipo">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={movementActionOptions}
                     value={form.action}
-                    onChange={(event) => updateForm("action", event.target.value as MovementAction)}
-                  >
-                    <option value="ENTRADA">Entrada</option>
-                    <option value="AJUSTE_POSITIVO">Ajuste positivo</option>
-                    <option value="AJUSTE_NEGATIVO">Ajuste negativo</option>
-                    <option value="BAJA">Baja</option>
-                    <option value="TRASLADO">Traslado</option>
-                  </select>
+                    onChange={(value) => updateForm("action", value as MovementAction)}
+                    placeholder="Seleccionar tipo"
+                    searchPlaceholder="Buscar tipo de movimiento"
+                    emptyLabel="Seleccionar"
+                  />
                 </Field>
                 <Field label="Cantidad">
                   <input
@@ -270,21 +335,31 @@ export function InventoryPage() {
                 </Field>
               </div>
 
+              {selectedAction && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">{selectedAction.label}:</span>{" "}
+                  {selectedAction.description}
+                </div>
+              )}
+
               {(form.action === "ENTRADA" || form.action === "TRASLADO") && (
-                <Field label={form.action === "TRASLADO" ? "Ubicacion destino" : "Ubicacion de ingreso"}>
-                  <select
-                    className="input-control"
+                <Field label={form.action === "TRASLADO" ? "Nueva ubicacion del equipo" : "Ubicacion de ingreso"}>
+                  <LocationCombobox
+                    locations={locations}
                     value={form.ubicacionDestinoId}
-                    onChange={(event) => updateForm("ubicacionDestinoId", event.target.value)}
+                    onChange={(value) => updateForm("ubicacionDestinoId", value)}
+                    placeholder={
+                      form.action === "TRASLADO" ? "Seleccionar nueva ubicacion" : "Usar ubicacion actual"
+                    }
+                    emptyLabel={form.action === "TRASLADO" ? "Seleccionar nueva ubicacion" : "Usar ubicacion actual"}
+                    searchPlaceholder="Buscar por ruta, laboratorio o padre"
                     required={form.action === "TRASLADO"}
-                  >
-                    <option value="">Usar ubicacion actual</option>
-                    {locations.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {location.laboratorio.codigo} - {location.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                  {form.action === "TRASLADO" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Esta sera la ubicacion fisica nueva del equipo seleccionado.
+                    </p>
+                  )}
                 </Field>
               )}
 

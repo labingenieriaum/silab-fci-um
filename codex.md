@@ -289,3 +289,385 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm.cmd run build --workspace @silab/frontend`: correcto.
 - Login real con `admin@silabfci.local` y verificacion de `/equipment` en navegador integrado: correcto.
 - `GET /api/v1/equipment/lookup?code=SILAB-FCI:EQUIPO:<qrToken>`: correcto.
+
+## Cierre real de fase 4: mantenimiento
+
+- Se completo el alcance pendiente de fase 4 agregando modulo backend `MaintenanceModule`.
+- Se implementaron DTOs para crear, listar y cerrar mantenimientos.
+- Se implementaron rutas reales protegidas con `mantenimiento:gestionar`:
+  - `GET /api/v1/maintenance`
+  - `POST /api/v1/maintenance`
+  - `GET /api/v1/maintenance/:id`
+  - `PATCH /api/v1/maintenance/:id/start`
+  - `PATCH /api/v1/maintenance/:id/close`
+  - `PATCH /api/v1/maintenance/:id/cancel`
+- Se agregaron reglas de negocio para:
+  - Enviar equipos agregados o unidades fisicas a mantenimiento.
+  - Abrir mantenimiento sobre items agregados ya retenidos en `cantidadMantenimiento` por devoluciones con dano.
+  - Exigir unidad cuando el equipo requiere serial.
+  - Bloquear unidades prestadas, en mantenimiento, dadas de baja, perdidas o inactivas.
+  - Descontar disponibilidad e incrementar cantidad en mantenimiento al registrar el ingreso.
+  - Cerrar mantenimiento como disponible, danado/incompleto o perdido.
+  - Cancelar mantenimiento devolviendo el item a disponible.
+  - Registrar movimientos `MANTENIMIENTO_ENTRADA` y `MANTENIMIENTO_SALIDA`.
+- Se aplico alcance por facultad en consultas y operaciones de mantenimiento.
+- Se agrego pagina frontend real `frontend/src/pages/maintenance-page.tsx`.
+- Se agregaron tipos frontend reales en `frontend/src/types/maintenance.ts`.
+- Se conecto la ruta `/maintenance`, retirando el placeholder.
+- Se ajusto la navegacion para mostrar mantenimientos solo con permiso `mantenimiento:gestionar`.
+- Con este cierre, fase 4 queda completa y el siguiente paso recomendado es fase 5: reportes PDF/Excel y actas.
+
+## Validaciones cierre fase 4
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build`: correcto.
+
+## Fase 5 completada: reportes PDF/Excel y actas
+
+- Se implemento modulo backend `ReportsModule`.
+- Se agregaron generadores internos sin dependencias externas para:
+  - Archivos `.xlsx` de una hoja compatibles con Excel.
+  - Archivos `.pdf` textuales para reportes y actas.
+- Se implementaron rutas protegidas con `reportes:ver`:
+  - `GET /api/v1/reports/inventory.xlsx`
+  - `GET /api/v1/reports/inventory.pdf`
+  - `GET /api/v1/reports/loans.xlsx`
+  - `GET /api/v1/reports/loans.pdf`
+  - `GET /api/v1/reports/maintenance.xlsx`
+  - `GET /api/v1/reports/maintenance.pdf`
+  - `GET /api/v1/reports/acts/loans/:id.pdf`
+  - `GET /api/v1/reports/acts/returns/:id.pdf`
+- Se aplico alcance por facultad en reportes de inventario, prestamos, mantenimientos y actas.
+- Los reportes de inventario incluyen codigos, categoria, marca/modelo, cantidades, estado, responsable y ruta completa de ubicacion.
+- Los reportes de prestamos exportan una fila por item de prestamo con solicitante, estado, fechas y cantidades.
+- Los reportes de mantenimiento exportan estado, tipo, equipo, unidad, responsable, fechas y observaciones.
+- Las actas PDF incluyen datos generales, detalle de equipos y espacios de firma.
+- Se agrego helper frontend `downloadApiFile` para descargar binarios autenticados con JWT.
+- Se agrego pagina frontend real `frontend/src/pages/reports-page.tsx`.
+- Se conecto la ruta `/reports`, retirando el placeholder.
+- Se ajusto la navegacion para mostrar reportes solo con permiso `reportes:ver`.
+
+## Validaciones fase 5
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build`: correcto.
+
+## Ajuste de formato PDF de inventario
+
+- Se reviso `data/Reporte de Inventario SIILAB FCI.html` como referencia visual del reporte institucional.
+- Se adapto `GET /api/v1/reports/inventory.pdf` para usar un formato PDF visual inspirado en ese HTML:
+  - Cabecera verde institucional con marca SIILAB FCI.
+  - Codigo de reporte.
+  - Metadatos de generacion, usuario, alcance y cantidad de referencias.
+  - Tarjetas de resumen ejecutivo.
+  - Barra de distribucion por disponibilidad, prestamo, mantenimiento y baja.
+  - Tabla con codigo, equipo, categoria, estado, disponibilidad y ruta de ubicacion.
+  - Footer institucional y paginacion.
+- El PDF usa datos reales de PostgreSQL mediante `ReportsService.getInventoryRows`.
+- Las ubicaciones se imprimen con ruta jerarquica completa usando los registros de `Ubicacion`.
+
+## Validaciones ajuste PDF inventario
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build`: correcto.
+
+## Ajuste de margenes, marca y QR de verificacion
+
+- Se ajusto el PDF de inventario para evitar desbordes de texto en cabecera, metadatos, tabla y footer.
+- Se redujo el bloque de marca del encabezado a un simbolo limpio tipo Universidad, evitando que el texto del logo se corte.
+- Se agregaron limites de ancho y truncado controlado para textos largos.
+- Se agrego un QR vectorial pequeño al footer del PDF.
+- El QR apunta a `/verify-report/:code`, una pagina publica del frontend que muestra el codigo de verificacion y confirma que el documento fue generado desde SIILAB FCI.
+- Se agrego dependencia backend `qrcode` para construir la matriz QR real dentro del PDF.
+- Se agrego pagina frontend `frontend/src/pages/verify-report-page.tsx`.
+
+## Validaciones ajuste QR PDF
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build`: correcto.
+
+## Ajuste visual adicional del PDF de inventario
+
+- Se amplio el panel derecho del encabezado para que `Reporte / Inventario de equipos` quede dentro del bloque verde.
+- Se amplio el recuadro verde claro del codigo de reporte para evitar cortes.
+- Se fijo el encabezado institucional a `Facultad de Ciencias e Ingenieria`, porque el sistema esta trabajando solo con FCI.
+- Se reemplazaron varios cortes con `...` por saltos de linea controlados en metadatos, encabezado, filas y ubicaciones.
+- Se bajo la tabla para separar mejor porcentajes y encabezados.
+- Se aumento la altura de filas y se redujo la cantidad de filas por pagina para evitar que la tabla invada el footer.
+- Se aumento el QR de verificacion y se movio el texto de codigo/pagina hacia la izquierda.
+
+## Validaciones ajuste visual PDF inventario
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build`: correcto.
+
+## Ajuste de entorno de desarrollo con recarga automatica
+
+- Se agrego script raiz `npm run dev` para levantar backend y frontend al mismo tiempo.
+- Se agrego `concurrently` como dependencia de desarrollo en la raiz.
+- El backend sigue usando `nest start --watch` mediante `npm run dev:backend`.
+- Se agregaron `watchOptions` en `backend/tsconfig.json` para mejorar la deteccion de cambios guardados.
+- Se configuro `server.watch` con polling en `frontend/vite.config.ts` para HMR estable.
+- Flujo recomendado:
+  - Ejecutar una sola vez `npm run dev`.
+  - Guardar cambios en backend o frontend.
+  - Nest reinicia el backend automaticamente.
+  - Vite actualiza el frontend automaticamente en el navegador.
+
+## Validaciones ajuste entorno desarrollo
+
+- `npm run build`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+
+## Ajuste estilo login en cabecera de PDF inventario
+
+- Se redisenio la parte superior de `GET /api/v1/reports/inventory.pdf` para acercarla al estilo del login.
+- Se agrego fondo verde moderno con patron de puntos y lineas tipo circuito.
+- Se separo visualmente `SILAB` y `FCI`, usando acento verde lima como en el login.
+- Se reemplazo la marca plana del encabezado por el logo original dentro de bloque blanco.
+- Se ajusto el bloque derecho de `REPORTE / Inventario de equipos` con verdes de mayor contraste y codigo en verde claro.
+- Se mantuvo el texto de facultad y universidad dentro del area verde para evitar que invada el cuerpo blanco del reporte.
+- Se ajusto nuevamente el encabezado para incrustar el archivo real `frontend/public/assets/logo-mark.png`, el mismo usado en la pagina de login.
+- Se agrego soporte interno para leer PNG RGBA e incrustarlo como imagen PDF con transparencia.
+
+## Validaciones ajuste cabecera PDF inventario
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- PDF de prueba generado correctamente con recurso `/Logo` incluido.
+
+## Ajuste formato PDF para prestamos y mantenimientos
+
+- Se agrego generador reutilizable `createTableReportPdf` para reportes tabulares con el mismo estilo del PDF de inventario.
+- `GET /api/v1/reports/loans.pdf` ahora usa:
+  - Cabecera verde moderna con patron tipo circuito.
+  - Logo original `logo-mark.png`.
+  - Codigo de reporte `REP-PRE-*`.
+  - Metadatos de generacion, usuario, alcance y registros.
+  - Resumen ejecutivo de prestamos, items, pendientes, activos y cerrados.
+  - Tabla con prestamo, estado, solicitante, equipo, cantidad, vencimiento y ubicacion jerarquica.
+  - Footer con QR de verificacion.
+- `GET /api/v1/reports/maintenance.pdf` ahora usa:
+  - El mismo formato institucional.
+  - Codigo de reporte `REP-MAN-*`.
+  - Resumen de registros, abiertos, cerrados y cancelados.
+  - Tabla con ID, estado, tipo, equipo, responsable, inicio y ubicacion jerarquica.
+  - Footer con QR de verificacion.
+
+## Validaciones ajuste PDF prestamos/mantenimientos
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- PDF tabular de prueba generado correctamente con recurso `/Logo` incluido.
+
+## Formulario publico de solicitud de prestamo
+
+- Se agrego entidad `SolicitudPublicaPrestamo` en `schema_silab_fci.prisma`.
+- Se agrego enum `EstadoSolicitudPublicaPrestamo` con estados `RECIBIDA`, `EN_REVISION`, `CONVERTIDA`, `RECHAZADA` y `CANCELADA`.
+- Se agrego migracion `backend/prisma/migrations/20260605093000_add_public_loan_requests/migration.sql`.
+- Se creo DTO backend `CreatePublicLoanRequestDto` con validacion de:
+  - Nombre completo.
+  - Correo institucional `@umanizales.edu.co`.
+  - Codigo del equipo, recurso o infraestructura.
+  - Fecha requerida de prestamo.
+  - Fecha estimada de devolucion.
+  - Descripcion de la actividad.
+- Se agrego endpoint publico:
+  - `POST /api/v1/public/loan-requests`
+- El backend calcula y guarda `diasPrestamo`, valida que la fecha de prestamo no sea anterior a hoy y que la devolucion sea igual o posterior.
+- Se creo pagina frontend publica `frontend/src/pages/public-loan-request-page.tsx`.
+- Se agrego ruta publica `/solicitar-prestamo`.
+- La pagina calcula automaticamente la duracion del prestamo en dias segun las fechas seleccionadas.
+- Se agrego enlace desde el login hacia el formulario publico.
+
+## Validaciones formulario publico de prestamo
+
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+- `npx prisma db push --schema ../schema_silab_fci.prisma` no se pudo aplicar desde esta sesion: Prisma detecto la base remota `siilab_fci_dev` en `10.60.15.10:5432`, pero devolvio `Schema engine error` sin detalle tambien en `migrate status`.
+
+## Ajuste de selector publico de equipos prestables
+
+- Se reemplazo el campo libre de codigo en `/solicitar-prestamo` por un selector buscable.
+- Se agrego endpoint publico:
+  - `GET /api/v1/public/loan-resources`
+- El selector lista equipos disponibles para prestamo usando `cantidadDisponible > 0` y estado `DISPONIBLE`.
+- El buscador filtra por nombre, codigo, categoria y laboratorio.
+- La solicitud publica guarda `equipoId` cuando el usuario selecciona un equipo real.
+- Se agrego la opcion `El equipo o infraestructura no esta en la lista`.
+- Al escoger esa opcion se despliega un campo para describir lo que necesita el solicitante.
+- Ese caso queda como solicitud especial para que coordinacion revise si existe con otro nombre, si se maneja como prestamo especial o si se rechaza con nota.
+- Se agregaron endpoints internos protegidos con `prestamos:aprobar`:
+  - `GET /api/v1/loan-requests`
+  - `PATCH /api/v1/loan-requests/:id/status`
+- Coordinacion puede marcar solicitudes publicas como `EN_REVISION` o `RECHAZADA`.
+- Al rechazar una solicitud publica, el backend exige una nota interna.
+- Se agrego una bandeja de `Solicitudes publicas` dentro de la pagina interna de prestamos.
+
+## Validaciones ajuste selector publico
+
+- `npm run prisma:format`: correcto.
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+
+## Ajuste previo a fase 7: devoluciones, actas firmadas y correo
+
+- Se intento aplicar migracion Prisma con `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`.
+- Prisma sigue detectando la base remota `siilab_fci_dev` en `10.60.15.10:5432`, pero falla con `Schema engine error`.
+- Por instruccion del usuario, las migraciones quedan pendientes de aplicar en base de datos.
+- Se agrego boton `Copiar link formulario` en la pagina interna de prestamos.
+- Se amplio el modelo de devoluciones con evidencias:
+  - Fotos de equipos devueltos.
+  - Firma de coordinacion.
+  - Firma del administrador del sistema.
+  - Firma del solicitante.
+- Se agrego modelo `DevolucionEvidencia` y enum `TipoEvidenciaDevolucion`.
+- Se agrego vista protegida `/returns/:id/acta` para visualizar el acta de devolucion.
+- La vista de acta permite:
+  - Imprimir desde navegador.
+  - Descargar PDF usando el endpoint existente de reportes.
+  - Enviar por correo usando SMTP configurado.
+- El registro de devolucion ahora exige al menos una foto y las tres firmas.
+- Se agrego modulo `MailModule` con cliente SMTP interno.
+- Se agrego modulo `SettingsModule`.
+- Se agrego pagina real `/settings` para configurar:
+  - SMTP Google.
+  - SMTP Outlook.
+  - SMTP personalizado.
+  - Plantilla de acta de devolucion.
+  - Plantilla de aviso de prestamo por vencer.
+  - Plantilla de solicitud publica aprobada.
+- Se agrego endpoint `POST /api/v1/returns/:id/act/email` para enviar actas de devolucion.
+- Se agrego endpoint `POST /api/v1/loans/:id/due-soon-email` para enviar aviso manual de prestamo proximo a vencer.
+- Al marcar una solicitud publica como `CONVERTIDA`, el backend envia correo de aprobacion al correo registrado y usa la nota interna como mensaje adicional.
+
+## Validaciones ajuste devoluciones/correo
+
+- `npm run prisma:format`: correcto.
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: pendiente por `Schema engine error`.
+
+## Ajuste registro manual de prestamos
+
+- Se ajusto el flujo de registro interno de prestamos para que admin/coordinacion pueda registrar prestamos a nombre de otra persona.
+- Se agrego campo `fechaRequerida` al modelo `Prestamo`.
+- Se agregaron campos manuales para solicitantes que no son usuarios del sistema:
+  - `solicitanteNombre`
+  - `solicitanteCorreo`
+  - `solicitanteDocumento`
+- `usuarioSolicitanteId` ahora puede ser nulo.
+- En el formulario interno de prestamos se agrego modo de solicitante:
+  - Seleccionar usuario del sistema.
+  - Registrar datos manualmente.
+- Se agregaron fecha requerida, devolucion estimada y calculo de dias.
+- Se cambio el campo `Observaciones` a `Descripcion de la actividad / observaciones`.
+- Reportes, actas y correos ahora usan el usuario del sistema si existe o los datos manuales como fallback.
+- Se agrego migracion `backend/prisma/migrations/20260606113000_add_required_date_to_loans/migration.sql`.
+
+## Validaciones ajuste registro manual de prestamos
+
+- `npm run prisma:format`: correcto.
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: pendiente por `Schema engine error` desde esta sesion.
+
+## Ajuste trazabilidad de personas para prestamos
+
+- Se agrego entidad `PersonaPrestamo` para registrar personas que pueden solicitar prestamos sin ser usuarios con login.
+- Campos incluidos:
+  - Codigo.
+  - Nombre.
+  - Correo institucional.
+  - Carrera.
+  - Semestre para estudiantes.
+  - Rol: estudiante, profesor o administrativo.
+  - Estado activo/inactivo.
+- Se agrego enum `RolPersonaPrestamo`.
+- Se relaciono `Prestamo` con `personaSolicitanteId`.
+- Se agrego migracion `backend/prisma/migrations/20260606123000_add_people_for_loans/migration.sql`.
+- Se agrego modulo backend `/people` con:
+  - CRUD basico.
+  - Filtro por rol, semestre, carrera, estado y busqueda por codigo/nombre/correo.
+  - Resumen de estudiantes, profesores y administrativos activos.
+  - Carga masiva CSV con upsert por codigo.
+  - Eliminacion logica/desactivacion cuando la persona tiene historial de prestamos.
+- Se agrego pagina protegida `/people` en Administracion > Personas.
+- La pagina permite:
+  - Ver metricas superiores por rol.
+  - Buscar por codigo, nombre o correo.
+  - Filtrar por rol, carrera, semestre y estado.
+  - Crear y editar personas en modal.
+  - Subir CSV.
+  - Descargar formato CSV con columnas y filas de ejemplo.
+  - Eliminar o desactivar segun historial.
+- El formulario interno de prestamos ahora permite:
+  - Seleccionar persona activa registrada.
+  - Buscar personas por codigo, nombre o correo.
+  - Crear una persona nueva durante el registro del prestamo si no existe.
+- Reportes, actas y correos ahora priorizan `personaSolicitante` antes que usuario interno o campos manuales antiguos.
+
+## Validaciones ajuste personas para prestamos
+
+- `npm run prisma:format --workspace @silab/backend`: correcto.
+- `npm run prisma:validate --workspace @silab/backend`: correcto.
+- `npm run prisma:generate --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: pendiente por `Schema engine error` desde esta sesion.
+
+## Ajuste formato CSV de personas
+
+- Se agrego boton `Descargar formato` junto a `Subir CSV` en Administracion > Personas.
+- El archivo descargado se llama `formato-personas-prestamo.csv`.
+- Incluye las columnas:
+  - `codigo`
+  - `nombre`
+  - `correo`
+  - `carrera`
+  - `semestre`
+  - `rol`
+- Incluye filas de ejemplo para estudiante, profesor y administrativo.
+
+## Validaciones ajuste formato CSV
+
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+
+## Ajuste desplegables buscables
+
+- Se agrego componente reusable `SearchableSelect`.
+- Todos los `<select>` nativos del frontend fueron reemplazados por desplegables con buscador interno.
+- El buscador filtra mientras se escribe segun el contexto:
+  - Equipos: codigo, nombre, codigo de barras y categoria.
+  - Personas: codigo, nombre, correo y carrera.
+  - Unidades: codigo y serial.
+  - Ubicaciones/laboratorios: nombre, codigo, ruta y tipo.
+  - Categorias, roles, facultades, programas y estados: nombre, codigo o descripcion disponible.
+- Se mantuvo `LocationCombobox` para ubicaciones porque ya tenia buscador y muestra rutas padre/hijo.
+
+## Validaciones ajuste desplegables buscables
+
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.

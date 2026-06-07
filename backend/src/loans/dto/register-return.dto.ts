@@ -6,10 +6,11 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested
 } from "class-validator";
-import { EstadoCondicionEquipo } from "@prisma/client";
+import { EstadoCondicionEquipo, TipoEvidenciaDevolucion } from "@prisma/client";
 
 export class RegisterReturnDetailDto {
   @Type(() => Number)
@@ -29,6 +30,28 @@ export class RegisterReturnDetailDto {
   observaciones?: string | null;
 }
 
+export class RegisterReturnEvidenceDto {
+  @IsEnum(TipoEvidenciaDevolucion)
+  tipo!: TipoEvidenciaDevolucion;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(160)
+  nombreArchivo?: string | null;
+
+  @IsString()
+  @MaxLength(80)
+  mimeType!: string;
+
+  @IsString()
+  contenidoBase64!: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(120)
+  firmanteNombre?: string | null;
+}
+
 export class RegisterReturnDto {
   @IsString()
   @IsOptional()
@@ -39,4 +62,10 @@ export class RegisterReturnDto {
   @ValidateNested({ each: true })
   @Type(() => RegisterReturnDetailDto)
   detalles!: RegisterReturnDetailDto[];
+
+  @IsArray()
+  @ArrayMinSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => RegisterReturnEvidenceDto)
+  evidencias!: RegisterReturnEvidenceDto[];
 }

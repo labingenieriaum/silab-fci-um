@@ -81,6 +81,27 @@ enum EstadoPrestamo {
   CANCELADO
 }
 
+enum RolPersonaPrestamo {
+  ESTUDIANTE
+  PROFESOR
+  ADMINISTRATIVO
+}
+
+enum EstadoSolicitudPublicaPrestamo {
+  RECIBIDA
+  EN_REVISION
+  CONVERTIDA
+  RECHAZADA
+  CANCELADA
+}
+
+enum TipoEvidenciaDevolucion {
+  FOTO
+  FIRMA_COORDINADOR
+  FIRMA_ADMIN
+  FIRMA_SOLICITANTE
+}
+
 enum EstadoCondicionEquipo {
   BUENO
   REGULAR
@@ -203,6 +224,15 @@ model RolPermiso {
   @@map("roles_permisos")
 }
 
+model ConfiguracionSistema {
+  clave     String   @id
+  valor     String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("configuraciones_sistema")
+}
+
 model Usuario {
   id           Int         @id @default(autoincrement())
   rolId        Int         @map("rol_id")
@@ -242,6 +272,27 @@ model Usuario {
   @@index([facultadId])
   @@index([programaId])
   @@map("usuarios")
+}
+
+model PersonaPrestamo {
+  id                   Int                @id @default(autoincrement())
+  codigo               String             @unique
+  nombre               String
+  correoInstitucional  String?            @map("correo_institucional")
+  carrera              String?
+  semestre             Int?
+  rol                  RolPersonaPrestamo
+  activo               Boolean            @default(true)
+  prestamosSolicitados Prestamo[]
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+  deletedAt            DateTime?          @map("deleted_at")
+
+  @@index([rol])
+  @@index([carrera])
+  @@index([semestre])
+  @@index([activo])
+  @@map("personas_prestamo")
 }
 
 model RefreshToken {
@@ -345,12 +396,13 @@ model Equipo {
   ubicacion   Ubicacion       @relation(fields: [ubicacionId], references: [id])
   responsable Usuario?        @relation("UsuarioResponsableEquipo", fields: [responsableId], references: [id])
 
-  unidades           EquipoUnidad[]
-  movimientos        InventarioMovimiento[]
-  prestamoDetalles   PrestamoDetalle[]
-  devolucionDetalles DevolucionDetalle[]
-  mantenimientos     Mantenimiento[]
-  archivos           Archivo[]
+  unidades                    EquipoUnidad[]
+  movimientos                 InventarioMovimiento[]
+  prestamoDetalles            PrestamoDetalle[]
+  devolucionDetalles          DevolucionDetalle[]
+  mantenimientos              Mantenimiento[]
+  archivos                    Archivo[]
+  solicitudesPublicasPrestamo SolicitudPublicaPrestamo[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -452,7 +504,11 @@ model Actividad {
 model Prestamo {
   id                      Int            @id @default(autoincrement())
   codigo                  String         @unique @default(cuid())
-  usuarioSolicitanteId    Int            @map("usuario_solicitante_id")
+  usuarioSolicitanteId    Int?           @map("usuario_solicitante_id")
+  personaSolicitanteId    Int?           @map("persona_solicitante_id")
+  solicitanteNombre       String?        @map("solicitante_nombre")
+  solicitanteCorreo       String?        @map("solicitante_correo")
+  solicitanteDocumento    String?        @map("solicitante_documento")
   materiaId               Int?           @map("materia_id")
   proyectoId              Int?           @map("proyecto_id")
   actividadId             Int?           @map("actividad_id")
@@ -461,6 +517,7 @@ model Prestamo {
   entregadoPorId          Int?           @map("entregado_por_id")
   tipoUso                 TipoUso        @map("tipo_uso")
   fechaSolicitud          DateTime       @default(now()) @map("fecha_solicitud")
+  fechaRequerida          DateTime?      @map("fecha_requerida")
   fechaPrestamo           DateTime?      @map("fecha_prestamo")
   fechaAprobacion         DateTime?      @map("fecha_aprobacion")
   fechaRechazo            DateTime?      @map("fecha_rechazo")
@@ -471,13 +528,14 @@ model Prestamo {
   observaciones           String?
   motivoRechazo           String?        @map("motivo_rechazo")
 
-  usuarioSolicitante Usuario    @relation("UsuarioSolicitaPrestamo", fields: [usuarioSolicitanteId], references: [id])
-  materia            Materia?   @relation(fields: [materiaId], references: [id])
-  proyecto           Proyecto?  @relation(fields: [proyectoId], references: [id])
-  actividad          Actividad? @relation(fields: [actividadId], references: [id])
-  aprobadoPor        Usuario?   @relation("UsuarioApruebaPrestamo", fields: [aprobadoPorId], references: [id])
-  rechazadoPor       Usuario?   @relation("UsuarioRechazaPrestamo", fields: [rechazadoPorId], references: [id])
-  entregadoPor       Usuario?   @relation("UsuarioEntregaPrestamo", fields: [entregadoPorId], references: [id])
+  usuarioSolicitante Usuario?         @relation("UsuarioSolicitaPrestamo", fields: [usuarioSolicitanteId], references: [id])
+  personaSolicitante PersonaPrestamo? @relation(fields: [personaSolicitanteId], references: [id])
+  materia            Materia?         @relation(fields: [materiaId], references: [id])
+  proyecto           Proyecto?        @relation(fields: [proyectoId], references: [id])
+  actividad          Actividad?       @relation(fields: [actividadId], references: [id])
+  aprobadoPor        Usuario?         @relation("UsuarioApruebaPrestamo", fields: [aprobadoPorId], references: [id])
+  rechazadoPor       Usuario?         @relation("UsuarioRechazaPrestamo", fields: [rechazadoPorId], references: [id])
+  entregadoPor       Usuario?         @relation("UsuarioEntregaPrestamo", fields: [entregadoPorId], references: [id])
 
   detalles     PrestamoDetalle[]
   devoluciones Devolucion[]
@@ -488,10 +546,13 @@ model Prestamo {
   deletedAt DateTime? @map("deleted_at")
 
   @@index([usuarioSolicitanteId])
+  @@index([personaSolicitanteId])
+  @@index([solicitanteCorreo])
   @@index([materiaId])
   @@index([proyectoId])
   @@index([actividadId])
   @@index([estado])
+  @@index([fechaRequerida])
   @@index([fechaDevolucionEstimada])
   @@map("prestamos")
 }
@@ -524,6 +585,33 @@ model PrestamoDetalle {
   @@map("prestamo_detalle")
 }
 
+model SolicitudPublicaPrestamo {
+  id                      Int                            @id @default(autoincrement())
+  codigoSolicitud         String                         @unique @map("codigo_solicitud")
+  equipoId                Int?                           @map("equipo_id")
+  nombreCompleto          String                         @map("nombre_completo")
+  correoInstitucional     String                         @map("correo_institucional")
+  codigoRecurso           String                         @map("codigo_recurso")
+  fechaPrestamo           DateTime                       @map("fecha_prestamo")
+  fechaDevolucionEstimada DateTime                       @map("fecha_devolucion_estimada")
+  diasPrestamo            Int                            @map("dias_prestamo")
+  descripcionActividad    String                         @map("descripcion_actividad")
+  estado                  EstadoSolicitudPublicaPrestamo @default(RECIBIDA)
+  observacionesInternas   String?                        @map("observaciones_internas")
+  createdAt               DateTime                       @default(now()) @map("created_at")
+  updatedAt               DateTime                       @updatedAt @map("updated_at")
+  deletedAt               DateTime?                      @map("deleted_at")
+
+  equipo Equipo? @relation(fields: [equipoId], references: [id])
+
+  @@index([equipoId])
+  @@index([correoInstitucional])
+  @@index([codigoRecurso])
+  @@index([estado])
+  @@index([fechaPrestamo])
+  @@map("solicitudes_publicas_prestamo")
+}
+
 model Devolucion {
   id              Int      @id @default(autoincrement())
   prestamoId      Int      @map("prestamo_id")
@@ -536,6 +624,7 @@ model Devolucion {
 
   detalles    DevolucionDetalle[]
   movimientos InventarioMovimiento[]
+  evidencias  DevolucionEvidencia[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -543,6 +632,23 @@ model Devolucion {
   @@index([prestamoId])
   @@index([usuarioRecibeId])
   @@map("devoluciones")
+}
+
+model DevolucionEvidencia {
+  id              Int                     @id @default(autoincrement())
+  devolucionId    Int                     @map("devolucion_id")
+  tipo            TipoEvidenciaDevolucion
+  nombreArchivo   String?                 @map("nombre_archivo")
+  mimeType        String                  @map("mime_type")
+  contenidoBase64 String                  @map("contenido_base64") @db.Text
+  firmanteNombre  String?                 @map("firmante_nombre")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  devolucion Devolucion @relation(fields: [devolucionId], references: [id], onDelete: Cascade)
+
+  @@index([devolucionId])
+  @@index([tipo])
+  @@map("devoluciones_evidencias")
 }
 
 model DevolucionDetalle {

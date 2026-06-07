@@ -1,10 +1,13 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, PointerEvent, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ClipboardCheck,
+  Copy,
+  FileQuestion,
   Loader2,
+  Mail as MailIcon,
   PackageCheck,
   Plus,
   RotateCcw,
@@ -14,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAuth } from "@/features/auth/auth-context";
 import { apiRequest } from "@/lib/api";
 import { formatDateTime, formatEnum } from "@/lib/format";
@@ -25,22 +29,81 @@ import type {
   PaginatedLoans,
   TipoUso
 } from "@/types/loans";
+import type { PaginatedPeople, RolPersonaPrestamo } from "@/types/people";
 
 interface LoanFormState {
+  solicitanteModo: "PERSONA" | "NUEVA";
+  personaSolicitanteId: string;
+  personaCodigo: string;
+  personaNombre: string;
+  personaCorreoInstitucional: string;
+  personaCarrera: string;
+  personaSemestre: string;
+  personaRol: RolPersonaPrestamo;
   equipoId: string;
   equipoUnidadId: string;
   cantidadSolicitada: string;
   tipoUso: TipoUso;
+  fechaRequerida: string;
   fechaDevolucionEstimada: string;
   observaciones: string;
 }
 
+type EstadoSolicitudPublicaPrestamo =
+  | "RECIBIDA"
+  | "EN_REVISION"
+  | "CONVERTIDA"
+  | "RECHAZADA"
+  | "CANCELADA";
+
+interface PublicLoanRequest {
+  id: number;
+  codigoSolicitud: string;
+  equipoId: number | null;
+  nombreCompleto: string;
+  correoInstitucional: string;
+  codigoRecurso: string;
+  fechaPrestamo: string;
+  fechaDevolucionEstimada: string;
+  diasPrestamo: number;
+  descripcionActividad: string;
+  estado: EstadoSolicitudPublicaPrestamo;
+  observacionesInternas: string | null;
+  equipo: {
+    codigoInterno: string;
+    nombre: string;
+    cantidadDisponible: number;
+  } | null;
+}
+
+interface ReturnEvidencePhoto {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+}
+
+interface ReturnMutationResponse {
+  loan: Loan;
+  returnId: number;
+}
+
+type ReturnSignatureKey = "coordinador" | "admin" | "solicitante";
+
 const initialForm: LoanFormState = {
+  solicitanteModo: "PERSONA",
+  personaSolicitanteId: "",
+  personaCodigo: "",
+  personaNombre: "",
+  personaCorreoInstitucional: "",
+  personaCarrera: "",
+  personaSemestre: "",
+  personaRol: "ESTUDIANTE",
   equipoId: "",
   equipoUnidadId: "",
   cantidadSolicitada: "1",
   tipoUso: "ACADEMICO",
-  fechaDevolucionEstimada: toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+  fechaRequerida: toDatetimeLocal(new Date(Date.now() + 60 * 60 * 1000)),
+  fechaDevolucionEstimada: toDatetimeLocal(new Date(Date.now() + 25 * 60 * 60 * 1000)),
   observaciones: ""
 };
 
@@ -52,9 +115,24 @@ const returnConditions: EstadoCondicionEquipo[] = [
   "PERDIDO"
 ];
 
+const personRoleOptions = [
+  { value: "ESTUDIANTE", label: "Estudiante", searchText: "estudiante" },
+  { value: "PROFESOR", label: "Profesor", searchText: "profesor docente" },
+  { value: "ADMINISTRATIVO", label: "Administrativo", searchText: "administrativo" }
+];
+
+const useTypeOptions = [
+  { value: "ACADEMICO", label: "Academico" },
+  { value: "INVESTIGACION", label: "Investigacion" },
+  { value: "EXTENSION", label: "Extension" },
+  { value: "ADMINISTRATIVO", label: "Administrativo" },
+  { value: "PROYECTO", label: "Proyecto" },
+  { value: "OTRO", label: "Otro" }
+];
+
 export function LoansPage() {
   const queryClient = useQueryClient();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [search, setSearch] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [form, setForm] = useState<LoanFormState>(initialForm);
@@ -64,6 +142,14 @@ export function LoansPage() {
     Record<number, EstadoCondicionEquipo>
   >({});
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [publicRequestNotes, setPublicRequestNotes] = useState<Record<number, string>>({});
+  const [returnPhotos, setReturnPhotos] = useState<ReturnEvidencePhoto[]>([]);
+  const [returnSignatures, setReturnSignatures] = useState<Record<ReturnSignatureKey, string>>({
+    coordinador: "",
+    admin: "",
+    solicitante: ""
+  });
+  const [lastReturnActId, setLastReturnActId] = useState<number | null>(null);
 
   const loansQuery = useQuery({
     queryKey: ["loans", search],
@@ -73,9 +159,20 @@ export function LoansPage() {
       )
   });
 
+  const publicRequestsQuery = useQuery({
+    queryKey: ["public-loan-requests"],
+    enabled: hasPermission("prestamos:aprobar"),
+    queryFn: () => apiRequest<PublicLoanRequest[]>("/loan-requests")
+  });
+
   const equipmentQuery = useQuery({
     queryKey: ["equipment"],
     queryFn: () => apiRequest<PaginatedResponse<Equipment>>("/equipment?page=1&pageSize=100")
+  });
+
+  const peopleQuery = useQuery({
+    queryKey: ["loan-requester-people"],
+    queryFn: () => apiRequest<PaginatedPeople>("/people?page=1&pageSize=200&activo=true")
   });
 
   const selectedEquipment = useMemo(
@@ -90,8 +187,53 @@ export function LoansPage() {
   });
 
   const loans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
-  const equipment = equipmentQuery.data?.data ?? [];
+  const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
+  const requesterPeople = useMemo(() => peopleQuery.data?.data ?? [], [peopleQuery.data]);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0] ?? null;
+
+  const requesterOptions = useMemo(
+    () =>
+      requesterPeople.map((requester) => ({
+        value: String(requester.id),
+        label: `${requester.codigo} - ${requester.nombre}`,
+        description: requester.correoInstitucional ?? formatEnum(requester.rol),
+        searchText: `${requester.codigo} ${requester.nombre} ${requester.correoInstitucional ?? ""} ${requester.carrera ?? ""}`
+      })),
+    [requesterPeople]
+  );
+
+  const equipmentOptions = useMemo(
+    () =>
+      equipment.map((item) => ({
+        value: String(item.id),
+        label: `${item.codigoInterno} - ${item.nombre} (${item.cantidadDisponible})`,
+        description: item.categoria?.nombre,
+        searchText: `${item.codigoInterno} ${item.codigoBarras ?? ""} ${item.nombre} ${item.categoria?.nombre ?? ""}`
+      })),
+    [equipment]
+  );
+
+  const unitOptions = useMemo(
+    () =>
+      (unitsQuery.data ?? [])
+        .filter((unit) => unit.estado === "DISPONIBLE")
+        .map((unit) => ({
+          value: String(unit.id),
+          label: `${unit.codigoInterno}${unit.serial ? ` / ${unit.serial}` : ""}`,
+          description: formatEnum(unit.estado),
+          searchText: `${unit.codigoInterno} ${unit.serial ?? ""}`
+        })),
+    [unitsQuery.data]
+  );
+  const returnConditionOptions = useMemo(
+    () =>
+      returnConditions.map((condition) => ({
+        value: condition,
+        label: formatEnum(condition),
+        searchText: `${condition} ${formatEnum(condition)}`
+      })),
+    []
+  );
 
   const summary = useMemo(
     () =>
@@ -113,7 +255,22 @@ export function LoansPage() {
       apiRequest<Loan>("/loans", {
         method: "POST",
         body: JSON.stringify({
+          personaSolicitanteId:
+            payload.solicitanteModo === "PERSONA" && payload.personaSolicitanteId
+              ? Number(payload.personaSolicitanteId)
+              : undefined,
+          personaCodigo: payload.solicitanteModo === "NUEVA" ? payload.personaCodigo : undefined,
+          personaNombre: payload.solicitanteModo === "NUEVA" ? payload.personaNombre : undefined,
+          personaCorreoInstitucional:
+            payload.solicitanteModo === "NUEVA" ? payload.personaCorreoInstitucional : undefined,
+          personaCarrera: payload.solicitanteModo === "NUEVA" ? payload.personaCarrera : undefined,
+          personaSemestre:
+            payload.solicitanteModo === "NUEVA" && payload.personaSemestre
+              ? Number(payload.personaSemestre)
+              : undefined,
+          personaRol: payload.solicitanteModo === "NUEVA" ? payload.personaRol : undefined,
           tipoUso: payload.tipoUso,
+          fechaRequerida: new Date(payload.fechaRequerida).toISOString(),
           fechaDevolucionEstimada: new Date(payload.fechaDevolucionEstimada).toISOString(),
           observaciones: payload.observaciones || undefined,
           detalles: [
@@ -131,7 +288,11 @@ export function LoansPage() {
       setFeedback("Solicitud registrada correctamente.");
       setSelectedLoanId(loan.id);
       setForm(initialForm);
-      await queryClient.invalidateQueries({ queryKey: ["loans"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["loans"] }),
+        queryClient.invalidateQueries({ queryKey: ["loan-requester-people"] }),
+        queryClient.invalidateQueries({ queryKey: ["people"] })
+      ]);
     },
     onError: (error) => setFeedback(error instanceof Error ? error.message : "No fue posible registrar la solicitud.")
   });
@@ -185,7 +346,7 @@ export function LoansPage() {
 
   const returnMutation = useMutation({
     mutationFn: (loan: Loan) =>
-      apiRequest<Loan>(`/loans/${loan.id}/returns`, {
+      apiRequest<ReturnMutationResponse>(`/loans/${loan.id}/returns`, {
         method: "POST",
         body: JSON.stringify({
           detalles: loan.detalles
@@ -194,20 +355,79 @@ export function LoansPage() {
               cantidad: Number(returnQuantities[detail.id] ?? 0),
               estadoDevolucion: returnConditionsByDetail[detail.id] ?? "BUENO"
             }))
-            .filter((detail) => detail.cantidad > 0)
+            .filter((detail) => detail.cantidad > 0),
+          evidencias: [
+            ...returnPhotos.map((photo) => ({
+              tipo: "FOTO",
+              nombreArchivo: photo.name,
+              mimeType: photo.mimeType,
+              contenidoBase64: photo.dataUrl
+            })),
+            {
+              tipo: "FIRMA_COORDINADOR",
+              mimeType: "image/png",
+              contenidoBase64: returnSignatures.coordinador,
+              firmanteNombre: user?.nombre ?? "Coordinacion"
+            },
+            {
+              tipo: "FIRMA_ADMIN",
+              mimeType: "image/png",
+              contenidoBase64: returnSignatures.admin,
+              firmanteNombre: "Administrador del sistema"
+            },
+            {
+              tipo: "FIRMA_SOLICITANTE",
+              mimeType: "image/png",
+              contenidoBase64: returnSignatures.solicitante,
+              firmanteNombre: getLoanRequesterName(loan)
+            }
+          ]
         })
       }),
-    onSuccess: async (loan) => {
+    onSuccess: async (result) => {
       setFeedback("Devolucion registrada.");
-      setSelectedLoanId(loan.id);
+      setSelectedLoanId(result.loan.id);
+      setLastReturnActId(result.returnId);
       setReturnQuantities({});
       setReturnConditionsByDetail({});
+      setReturnPhotos([]);
+      setReturnSignatures({ coordinador: "", admin: "", solicitante: "" });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["loans"] }),
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
       ]);
     },
+    onError: setErrorFeedback
+  });
+
+  const publicRequestMutation = useMutation({
+    mutationFn: ({
+      requestId,
+      estado,
+      observacionesInternas
+    }: {
+      requestId: number;
+      estado: EstadoSolicitudPublicaPrestamo;
+      observacionesInternas?: string;
+    }) =>
+      apiRequest<PublicLoanRequest>(`/loan-requests/${requestId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ estado, observacionesInternas })
+      }),
+    onSuccess: async () => {
+      setFeedback("Solicitud publica actualizada.");
+      await queryClient.invalidateQueries({ queryKey: ["public-loan-requests"] });
+    },
+    onError: setErrorFeedback
+  });
+
+  const dueSoonEmailMutation = useMutation({
+    mutationFn: (loanId: number) =>
+      apiRequest<{ sent: boolean; to: string }>(`/loans/${loanId}/due-soon-email`, {
+        method: "POST"
+      }),
+    onSuccess: (result) => setFeedback(`Aviso de vencimiento enviado a ${result.to}.`),
     onError: setErrorFeedback
   });
 
@@ -219,13 +439,31 @@ export function LoansPage() {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "equipoId" ? { equipoUnidadId: "", cantidadSolicitada: "1" } : {})
+      ...(key === "equipoId" ? { equipoUnidadId: "", cantidadSolicitada: "1" } : {}),
+      ...(key === "personaRol" && value !== "ESTUDIANTE" ? { personaSemestre: "" } : {})
     }));
   }
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
+    if (form.solicitanteModo === "PERSONA" && !form.personaSolicitanteId) {
+      setFeedback("Selecciona la persona solicitante del prestamo.");
+      return;
+    }
+    if (
+      form.solicitanteModo === "NUEVA" &&
+      (!form.personaCodigo.trim() ||
+        !form.personaNombre.trim() ||
+        !form.personaCorreoInstitucional.trim())
+    ) {
+      setFeedback("Registra codigo, nombre y correo institucional de la persona.");
+      return;
+    }
+    if (new Date(form.fechaDevolucionEstimada) <= new Date(form.fechaRequerida)) {
+      setFeedback("La devolucion estimada debe ser posterior a la fecha requerida.");
+      return;
+    }
     if (!form.equipoId) {
       setFeedback("Selecciona un equipo.");
       return;
@@ -253,7 +491,53 @@ export function LoansPage() {
       setFeedback("Registra al menos una cantidad a devolver.");
       return;
     }
+    if (!returnPhotos.length) {
+      setFeedback("Adjunta al menos una foto de los equipos devueltos.");
+      return;
+    }
+    if (!returnSignatures.coordinador || !returnSignatures.admin || !returnSignatures.solicitante) {
+      setFeedback("Registra las firmas de coordinacion, administrador y solicitante.");
+      return;
+    }
     returnMutation.mutate(loan);
+  }
+
+  async function handleReturnPhotos(files: FileList | null) {
+    if (!files?.length) {
+      return;
+    }
+    try {
+      const photos = await Promise.all(
+        Array.from(files).map(async (file) => ({
+          name: file.name,
+          mimeType: file.type,
+          dataUrl: await fileToDataUrl(file)
+        }))
+      );
+      setReturnPhotos((current) => [...current, ...photos].slice(0, 6));
+    } catch (error) {
+      setErrorFeedback(error);
+    }
+  }
+
+  function updatePublicRequestStatus(request: PublicLoanRequest, estado: EstadoSolicitudPublicaPrestamo) {
+    setFeedback(null);
+    const note = publicRequestNotes[request.id]?.trim();
+    if (estado === "RECHAZADA" && !note) {
+      setFeedback("Para rechazar la solicitud publica escribe una nota.");
+      return;
+    }
+    publicRequestMutation.mutate({
+      requestId: request.id,
+      estado,
+      observacionesInternas: note || undefined
+    });
+  }
+
+  async function copyPublicFormLink() {
+    const publicUrl = `${window.location.origin}/solicitar-prestamo`;
+    await navigator.clipboard.writeText(publicUrl);
+    setFeedback("Link del formulario publico copiado.");
   }
 
   const pendingAction =
@@ -261,7 +545,9 @@ export function LoansPage() {
     approveMutation.isPending ||
     rejectMutation.isPending ||
     deliverMutation.isPending ||
-    returnMutation.isPending;
+    returnMutation.isPending ||
+    publicRequestMutation.isPending ||
+    dueSoonEmailMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -272,14 +558,20 @@ export function LoansPage() {
             Solicitudes, aprobaciones, entregas y recepcion de equipos.
           </p>
         </div>
-        <div className="flex h-10 items-center gap-2 rounded-md border bg-white px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            className="h-full w-64 bg-transparent text-sm outline-none"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar prestamo"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button type="button" variant="outline" onClick={copyPublicFormLink}>
+            <Copy className="h-4 w-4" />
+            Copiar link formulario
+          </Button>
+          <div className="flex h-10 items-center gap-2 rounded-md border bg-white px-3">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              className="h-full w-64 bg-transparent text-sm outline-none"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar prestamo"
+            />
+          </div>
         </div>
       </section>
 
@@ -323,8 +615,8 @@ export function LoansPage() {
                     >
                       <td className="px-4 py-3 font-medium">{loan.codigo}</td>
                       <td className="px-4 py-3">
-                        <div>{loan.usuarioSolicitante.nombre}</div>
-                        <div className="text-xs text-muted-foreground">{loan.usuarioSolicitante.correo}</div>
+                        <div>{getLoanRequesterName(loan)}</div>
+                        <div className="text-xs text-muted-foreground">{getLoanRequesterEmail(loan)}</div>
                       </td>
                       <td className="px-4 py-3">
                         {loan.detalles.map((detail) => (
@@ -356,6 +648,99 @@ export function LoansPage() {
         </Card>
 
         <div className="space-y-4">
+          {hasPermission("prestamos:aprobar") && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileQuestion className="h-4 w-4 text-primary" />
+                  Solicitudes publicas
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Revision de solicitudes enviadas sin iniciar sesion.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {publicRequestsQuery.isFetching && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Cargando solicitudes...
+                  </div>
+                )}
+
+                {(publicRequestsQuery.data ?? []).slice(0, 5).map((request) => (
+                  <div key={request.id} className="rounded-md border bg-white p-3 text-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{request.nombreCompleto}</p>
+                        <p className="text-xs text-muted-foreground">{request.correoInstitucional}</p>
+                      </div>
+                      <span className={getPublicRequestBadgeClass(request.estado)}>
+                        {formatEnum(request.estado)}
+                      </span>
+                    </div>
+                    <p className="mt-2 font-medium text-[#10201a]">
+                      {request.equipo
+                        ? `${request.equipo.codigoInterno} - ${request.equipo.nombre}`
+                        : request.codigoRecurso}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatDateTime(request.fechaPrestamo)} - {formatDateTime(request.fechaDevolucionEstimada)} · {request.diasPrestamo} dias
+                    </p>
+                    <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                      {request.descripcionActividad}
+                    </p>
+                    <textarea
+                      className="textarea-control mt-3 min-h-20 text-xs"
+                      value={publicRequestNotes[request.id] ?? request.observacionesInternas ?? ""}
+                      onChange={(event) =>
+                        setPublicRequestNotes((current) => ({
+                          ...current,
+                          [request.id]: event.target.value
+                        }))
+                      }
+                      placeholder="Nota interna si se rechaza o requiere revision."
+                    />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={pendingAction}
+                        onClick={() => updatePublicRequestStatus(request, "EN_REVISION")}
+                      >
+                        <Check className="h-4 w-4" />
+                        En revision
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={pendingAction}
+                        onClick={() => updatePublicRequestStatus(request, "CONVERTIDA")}
+                      >
+                        <MailIcon className="h-4 w-4" />
+                        Aprobar
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={pendingAction}
+                        onClick={() => updatePublicRequestStatus(request, "RECHAZADA")}
+                      >
+                        <X className="h-4 w-4" />
+                        Rechazar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {!publicRequestsQuery.isFetching && !(publicRequestsQuery.data ?? []).length && (
+                  <p className="rounded-md border bg-muted/30 px-3 py-4 text-center text-sm text-muted-foreground">
+                    No hay solicitudes publicas pendientes.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {hasPermission("prestamos:solicitar") && (
             <Card>
               <CardHeader>
@@ -366,40 +751,120 @@ export function LoansPage() {
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={handleCreate}>
+                  <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
+                    <Field label="Persona que solicita el prestamo">
+                      <SearchableSelect
+                        options={requesterOptions}
+                        value={form.personaSolicitanteId}
+                        onChange={(value) => updateForm("personaSolicitanteId", value)}
+                        placeholder="Seleccionar persona registrada"
+                        searchPlaceholder="Buscar por nombre, codigo o correo"
+                        emptyLabel="Sin persona"
+                        required={form.solicitanteModo === "PERSONA"}
+                        disabled={form.solicitanteModo === "NUEVA"}
+                      />
+                    </Field>
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        checked={form.solicitanteModo === "NUEVA"}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            solicitanteModo: event.target.checked ? "NUEVA" : "PERSONA",
+                            personaSolicitanteId: event.target.checked ? "" : current.personaSolicitanteId
+                          }))
+                        }
+                      />
+                      La persona no esta registrada
+                    </label>
+                  </div>
+
+                  {form.solicitanteModo === "NUEVA" && (
+                    <div className="grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Codigo">
+                          <input
+                            className="input-control"
+                            value={form.personaCodigo}
+                            onChange={(event) => updateForm("personaCodigo", event.target.value)}
+                            required
+                          />
+                        </Field>
+                        <Field label="Rol">
+                          <SearchableSelect
+                            options={personRoleOptions}
+                            value={form.personaRol}
+                            onChange={(value) => updateForm("personaRol", value as RolPersonaPrestamo)}
+                            placeholder="Seleccionar rol"
+                            searchPlaceholder="Buscar rol"
+                            emptyLabel="Seleccionar"
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Nombre completo">
+                        <input
+                          className="input-control"
+                          value={form.personaNombre}
+                          onChange={(event) => updateForm("personaNombre", event.target.value)}
+                          required
+                        />
+                      </Field>
+                      <Field label="Correo institucional">
+                        <input
+                          className="input-control"
+                          type="email"
+                          value={form.personaCorreoInstitucional}
+                          onChange={(event) => updateForm("personaCorreoInstitucional", event.target.value)}
+                          required
+                        />
+                      </Field>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Carrera">
+                          <input
+                            className="input-control"
+                            value={form.personaCarrera}
+                            onChange={(event) => updateForm("personaCarrera", event.target.value)}
+                          />
+                        </Field>
+                        <Field label="Semestre">
+                          <input
+                            className="input-control"
+                            type="number"
+                            min="1"
+                            max="20"
+                            disabled={form.personaRol !== "ESTUDIANTE"}
+                            value={form.personaSemestre}
+                            onChange={(event) => updateForm("personaSemestre", event.target.value)}
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  )}
+
                   <Field label="Equipo">
-                    <select
-                      className="input-control"
+                    <SearchableSelect
+                      options={equipmentOptions}
                       value={form.equipoId}
-                      onChange={(event) => updateForm("equipoId", event.target.value)}
+                      onChange={(value) => updateForm("equipoId", value)}
+                      placeholder="Seleccionar equipo"
+                      searchPlaceholder="Buscar por nombre, codigo o categoria"
+                      emptyLabel="Seleccionar"
                       required
-                    >
-                      <option value="">Seleccionar</option>
-                      {equipment.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.codigoInterno} - {item.nombre} ({item.cantidadDisponible})
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </Field>
 
                   {selectedEquipment?.requiereSerial ? (
                     <Field label="Unidad">
-                      <select
-                        className="input-control"
+                      <SearchableSelect
+                        options={unitOptions}
                         value={form.equipoUnidadId}
-                        onChange={(event) => updateForm("equipoUnidadId", event.target.value)}
+                        onChange={(value) => updateForm("equipoUnidadId", value)}
+                        placeholder="Seleccionar unidad"
+                        searchPlaceholder="Buscar por codigo o serial"
+                        emptyLabel="Seleccionar"
                         required
-                      >
-                        <option value="">Seleccionar</option>
-                        {(unitsQuery.data ?? [])
-                          .filter((unit) => unit.estado === "DISPONIBLE")
-                          .map((unit) => (
-                            <option key={unit.id} value={unit.id}>
-                              {unit.codigoInterno}
-                              {unit.serial ? ` / ${unit.serial}` : ""}
-                            </option>
-                          ))}
-                      </select>
+                      />
                     </Field>
                   ) : (
                     <Field label="Cantidad">
@@ -416,24 +881,20 @@ export function LoansPage() {
                   )}
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Uso">
-                      <select
+                    <Field label="Fecha requerida">
+                      <input
                         className="input-control"
-                        value={form.tipoUso}
-                        onChange={(event) => updateForm("tipoUso", event.target.value as TipoUso)}
-                      >
-                        <option value="ACADEMICO">Academico</option>
-                        <option value="INVESTIGACION">Investigacion</option>
-                        <option value="EXTENSION">Extension</option>
-                        <option value="ADMINISTRATIVO">Administrativo</option>
-                        <option value="PROYECTO">Proyecto</option>
-                        <option value="OTRO">Otro</option>
-                      </select>
+                        type="datetime-local"
+                        value={form.fechaRequerida}
+                        onChange={(event) => updateForm("fechaRequerida", event.target.value)}
+                        required
+                      />
                     </Field>
                     <Field label="Devolucion estimada">
                       <input
                         className="input-control"
                         type="datetime-local"
+                        min={form.fechaRequerida}
                         value={form.fechaDevolucionEstimada}
                         onChange={(event) => updateForm("fechaDevolucionEstimada", event.target.value)}
                         required
@@ -441,7 +902,27 @@ export function LoansPage() {
                     </Field>
                   </div>
 
-                  <Field label="Observaciones">
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    Duracion estimada:{" "}
+                    <span className="font-semibold text-foreground">
+                      {calculateLoanDays(form.fechaRequerida, form.fechaDevolucionEstimada)} dias
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Uso">
+                      <SearchableSelect
+                        options={useTypeOptions}
+                        value={form.tipoUso}
+                        onChange={(value) => updateForm("tipoUso", value as TipoUso)}
+                        placeholder="Seleccionar uso"
+                        searchPlaceholder="Buscar uso"
+                        emptyLabel="Seleccionar"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="Descripcion de la actividad / observaciones">
                     <textarea
                       className="textarea-control"
                       value={form.observaciones}
@@ -477,10 +958,23 @@ export function LoansPage() {
                       {formatEnum(selectedLoan.estado)}
                     </span>
                   </div>
-                  <p className="mt-2 text-muted-foreground">{selectedLoan.usuarioSolicitante.nombre}</p>
+                  <p className="mt-2 text-muted-foreground">{getLoanRequesterName(selectedLoan)}</p>
                   <p className="text-xs text-muted-foreground">
                     Solicitado: {formatDateTime(selectedLoan.fechaSolicitud)}
                   </p>
+                  {hasPermission("prestamos:aprobar") && (
+                    <Button
+                      className="mt-3"
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      disabled={pendingAction}
+                      onClick={() => dueSoonEmailMutation.mutate(selectedLoan.id)}
+                    >
+                      <MailIcon className="h-4 w-4" />
+                      Avisar vencimiento
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -516,28 +1010,87 @@ export function LoansPage() {
                               }
                               placeholder="Cant."
                             />
-                            <select
-                              className="input-control"
+                            <SearchableSelect
+                              options={returnConditionOptions}
                               value={returnConditionsByDetail[detail.id] ?? "BUENO"}
-                              onChange={(event) =>
+                              onChange={(value) =>
                                 setReturnConditionsByDetail((current) => ({
                                   ...current,
-                                  [detail.id]: event.target.value as EstadoCondicionEquipo
+                                  [detail.id]: value as EstadoCondicionEquipo
                                 }))
                               }
-                            >
-                              {returnConditions.map((condition) => (
-                                <option key={condition} value={condition}>
-                                  {formatEnum(condition)}
-                                </option>
-                              ))}
-                            </select>
+                              placeholder="Condicion"
+                              searchPlaceholder="Buscar condicion"
+                              emptyLabel="Condicion"
+                            />
                           </div>
                         )}
                       </div>
                     );
                   })}
                 </div>
+
+                {canReturn(selectedLoan.estado) && hasPermission("devoluciones:registrar") && (
+                  <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Evidencias de devolucion</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Adjunta fotos y registra las tres firmas para generar el acta.
+                      </p>
+                    </div>
+                    <label className="block text-sm font-medium">
+                      Fotos de los equipos devueltos
+                      <input
+                        className="mt-2 block w-full text-sm"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(event) => void handleReturnPhotos(event.target.files)}
+                      />
+                    </label>
+                    {returnPhotos.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {returnPhotos.map((photo, index) => (
+                          <div key={`${photo.name}-${index}`} className="overflow-hidden rounded-md border bg-white">
+                            <img className="h-20 w-full object-cover" src={photo.dataUrl} alt={photo.name} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid gap-3">
+                      <SignaturePad
+                        label="Firma coordinacion"
+                        value={returnSignatures.coordinador}
+                        onChange={(value) =>
+                          setReturnSignatures((current) => ({ ...current, coordinador: value }))
+                        }
+                      />
+                      <SignaturePad
+                        label="Firma administrador del sistema"
+                        value={returnSignatures.admin}
+                        onChange={(value) =>
+                          setReturnSignatures((current) => ({ ...current, admin: value }))
+                        }
+                      />
+                      <SignaturePad
+                        label="Firma solicitante"
+                        value={returnSignatures.solicitante}
+                        onChange={(value) =>
+                          setReturnSignatures((current) => ({ ...current, solicitante: value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {lastReturnActId && (
+                  <a
+                    className="block rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm font-medium text-primary"
+                    href={`/returns/${lastReturnActId}/acta`}
+                  >
+                    Visualizar acta de devolucion #{lastReturnActId}
+                  </a>
+                )}
 
                 {selectedLoan.estado === "SOLICITADO" && hasPermission("prestamos:aprobar") && (
                   <div className="space-y-3">
@@ -625,6 +1178,100 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function SignaturePad({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+
+  function getPoint(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return { x: 0, y: 0 };
+    }
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
+  }
+
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) {
+      return;
+    }
+    drawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    const point = getPoint(event);
+    context.strokeStyle = "#10201a";
+    context.lineWidth = 2;
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
+
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) {
+      return;
+    }
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) {
+      return;
+    }
+    const point = getPoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+    onChange(canvas.toDataURL("image/png"));
+  }
+
+  function stopDrawing() {
+    drawingRef.current = false;
+  }
+
+  function clearSignature() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) {
+      return;
+    }
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  }
+
+  return (
+    <div className="rounded-md border bg-white p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium">{label}</span>
+        <Button size="sm" type="button" variant="ghost" onClick={clearSignature}>
+          Limpiar
+        </Button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        className="h-28 w-full touch-none rounded-md border bg-white"
+        height={112}
+        width={360}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        {value ? "Firma capturada." : "Firma dentro del recuadro."}
+      </p>
+    </div>
+  );
+}
+
 function getLoanBadgeClass(state: EstadoPrestamo) {
   if (state === "SOLICITADO") {
     return "badge badge-gray";
@@ -638,11 +1285,63 @@ function getLoanBadgeClass(state: EstadoPrestamo) {
   return "badge badge-red";
 }
 
+function getPublicRequestBadgeClass(state: EstadoSolicitudPublicaPrestamo) {
+  if (state === "RECIBIDA") {
+    return "badge badge-gray";
+  }
+  if (state === "EN_REVISION") {
+    return "badge badge-amber";
+  }
+  if (state === "CONVERTIDA") {
+    return "badge badge-green";
+  }
+  return "badge badge-red";
+}
+
+function getLoanRequesterName(loan: Loan) {
+  return loan.personaSolicitante?.nombre ?? loan.usuarioSolicitante?.nombre ?? loan.solicitanteNombre ?? "Solicitante";
+}
+
+function getLoanRequesterEmail(loan: Loan) {
+  return (
+    loan.personaSolicitante?.correoInstitucional ??
+    loan.usuarioSolicitante?.correo ??
+    loan.solicitanteCorreo ??
+    "Sin correo"
+  );
+}
+
 function canReturn(state: EstadoPrestamo) {
   return state === "ENTREGADO" || state === "DEVUELTO_PARCIAL" || state === "VENCIDO";
+}
+
+function calculateLoanDays(startValue: string, endValue: string) {
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    return 0;
+  }
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
 function toDatetimeLocal(date: Date) {
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Solo se permiten imagenes."));
+      return;
+    }
+    if (file.size > 2_500_000) {
+      reject(new Error("Cada foto debe pesar menos de 2.5 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("No fue posible leer la imagen."));
+    reader.readAsDataURL(file);
+  });
 }

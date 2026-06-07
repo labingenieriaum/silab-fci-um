@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import type { TipoUsuario } from "@/types/auth";
 import type { Facultad, Programa, Role } from "@/types/catalogs";
@@ -94,6 +95,37 @@ export function UsersPage() {
     }
     return programs.filter((program) => program.facultadId === Number(form.facultadId));
   }, [form.facultadId, programsQuery.data]);
+
+  const roleOptions = useMemo(
+    () =>
+      (rolesQuery.data ?? []).map((role) => ({
+        value: String(role.id),
+        label: role.nombre,
+        description: role.descripcion ?? undefined,
+        searchText: `${role.nombre} ${role.descripcion ?? ""}`
+      })),
+    [rolesQuery.data]
+  );
+
+  const facultyOptions = useMemo(
+    () =>
+      (facultiesQuery.data ?? []).map((faculty) => ({
+        value: String(faculty.id),
+        label: `${faculty.sigla} - ${faculty.nombre}`,
+        searchText: `${faculty.sigla} ${faculty.nombre}`
+      })),
+    [facultiesQuery.data]
+  );
+
+  const programOptions = useMemo(
+    () =>
+      filteredPrograms.map((program) => ({
+        value: String(program.id),
+        label: `${program.codigo} - ${program.nombre}`,
+        searchText: `${program.codigo} ${program.nombre}`
+      })),
+    [filteredPrograms]
+  );
 
   const createUserMutation = useMutation({
     mutationFn: (payload: CreateUserPayload) =>
@@ -300,67 +332,50 @@ export function UsersPage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tipo de usuario">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={tipoUsuarioOptions}
                     value={form.tipoUsuario}
-                    onChange={(event) =>
-                      updateForm("tipoUsuario", event.target.value as TipoUsuario)
-                    }
-                  >
-                    {tipoUsuarioOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => updateForm("tipoUsuario", value as TipoUsuario)}
+                    placeholder="Seleccionar tipo"
+                    searchPlaceholder="Buscar tipo de usuario"
+                    emptyLabel="Seleccionar"
+                  />
                 </Field>
 
                 <Field label="Rol">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={roleOptions}
                     value={form.rolId}
-                    onChange={(event) => updateForm("rolId", event.target.value)}
+                    onChange={(value) => updateForm("rolId", value)}
+                    placeholder="Seleccionar rol"
+                    searchPlaceholder="Buscar rol"
+                    emptyLabel="Seleccionar"
                     required
-                  >
-                    <option value="">Seleccionar</option>
-                    {(rolesQuery.data ?? []).map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Field>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Facultad">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={facultyOptions}
                     value={form.facultadId}
-                    onChange={(event) => updateForm("facultadId", event.target.value)}
-                  >
-                    <option value="">Sin facultad</option>
-                    {(facultiesQuery.data ?? []).map((faculty) => (
-                      <option key={faculty.id} value={faculty.id}>
-                        {faculty.sigla} - {faculty.nombre}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => updateForm("facultadId", value)}
+                    placeholder="Sin facultad"
+                    searchPlaceholder="Buscar por sigla o nombre"
+                    emptyLabel="Sin facultad"
+                  />
                 </Field>
 
                 <Field label="Programa">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={programOptions}
                     value={form.programaId}
-                    onChange={(event) => updateForm("programaId", event.target.value)}
-                  >
-                    <option value="">Sin programa</option>
-                    {filteredPrograms.map((program) => (
-                      <option key={program.id} value={program.id}>
-                        {program.codigo} - {program.nombre}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => updateForm("programaId", value)}
+                    placeholder="Sin programa"
+                    searchPlaceholder="Buscar por codigo o nombre"
+                    emptyLabel="Sin programa"
+                  />
                 </Field>
               </div>
 
