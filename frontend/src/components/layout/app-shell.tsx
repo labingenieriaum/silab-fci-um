@@ -73,6 +73,7 @@ const navGroups = [
     items: [
       { label: "Facultades", href: "/faculties", icon: Building2, permission: "academia:gestionar" },
       { label: "Materias", href: "/subjects", icon: BookOpen },
+      { label: "Semilleros", href: "/seedbeds", icon: FlaskConical },
       { label: "Proyectos", href: "/projects", icon: ClipboardCheck },
       { label: "Actividades", href: "/activities", icon: Activity }
     ]

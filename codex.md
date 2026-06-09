@@ -290,6 +290,28 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - Login real con `admin@silabfci.local` y verificacion de `/equipment` en navegador integrado: correcto.
 - `GET /api/v1/equipment/lookup?code=SILAB-FCI:EQUIPO:<qrToken>`: correcto.
 
+## Revision de arranque 2026-06-09
+
+- Se reprodujo el error al correr el proyecto.
+- Causa principal backend: Prisma Client estaba desactualizado frente al schema actual, por eso TypeScript no encontraba modelos y enums nuevos como `PersonaPrestamo`, `ConfiguracionSistema` y `SolicitudPublicaPrestamo`.
+- Causa principal frontend/backend reportes: las dependencias `qrcode` y `jsbarcode` estaban declaradas, pero no instaladas fisicamente en `node_modules`.
+- Se ejecuto `npm.cmd run prisma:generate` para regenerar Prisma Client.
+- Se ejecuto `npm.cmd install` para sincronizar dependencias locales.
+- Se verifico que la base remota `siilab_fci_dev`, schema `public`, esta al dia con 8 migraciones.
+- Se verifico arranque real del backend con `npm.cmd run dev:backend`: compila en watch con 0 errores y Nest inicia correctamente.
+- Se verifico que el frontend responde en `http://localhost:5173` con titulo `SILAB FCI`.
+
+## Validaciones revision de arranque 2026-06-09
+
+- `npm.cmd run prisma:validate`: correcto.
+- `npm.cmd run prisma:generate`: correcto.
+- `npm.cmd install`: correcto; reporta 3 vulnerabilidades moderadas ya conocidas.
+- `npm.cmd run build --workspace @silab/backend`: correcto.
+- `npm.cmd run build --workspace @silab/frontend`: correcto.
+- `npm.cmd run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run lint --workspace @silab/frontend`: correcto.
+- `npx.cmd prisma migrate status --schema ../schema_silab_fci.prisma` desde `backend/`: correcto, base al dia.
+
 ## Cierre real de fase 4: mantenimiento
 
 - Se completo el alcance pendiente de fase 4 agregando modulo backend `MaintenanceModule`.
@@ -671,3 +693,68 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 
 - `npm run lint --workspace @silab/frontend`: correcto.
 - `npm run build --workspace @silab/frontend`: correcto.
+
+## Ajuste catalogo academico: materias, semilleros, proyectos y actividades
+
+- Se amplio el modelo academico para soportar materias con varios profesores y grupos.
+- Se agrego entidad `MateriaProfesor` con:
+  - Materia.
+  - Profesor.
+  - Grupo.
+  - Periodo.
+  - Estado activo/inactivo.
+- `Materia.semestre` quedo opcional para permitir materias transversales o casos donde el semestre aun no este definido.
+- Se agrego entidad `Semillero` con:
+  - Facultad.
+  - Coordinador de semillero.
+  - Codigo.
+  - Nombre.
+  - Descripcion.
+  - Estado activo/inactivo.
+- `Proyecto` ahora puede asociarse a un semillero.
+- `Actividad` ahora puede asociarse a facultad, programa, responsable y semillero.
+- `Prestamo` ahora puede guardar `materiaProfesorId` para saber no solo la materia, sino tambien el profesor y grupo relacionado con el uso del equipo.
+- Se agrego migracion `backend/prisma/migrations/20260609165000_add_subject_professors_and_seedbeds/migration.sql`.
+- Prisma genero ademas la migracion `backend/prisma/migrations/20260609224309_add_subject_professors_and_seedbeds/migration.sql`.
+- Las migraciones quedaron aplicadas en PostgreSQL remoto `siilab_fci_dev`, schema `public`.
+- Se amplio `AcademicModule` con CRUD real para:
+  - Materias.
+  - Semilleros.
+  - Proyectos.
+  - Actividades.
+- Se agrego endpoint `GET /api/v1/academic-users` para seleccionar profesores, coordinadores y responsables desde usuarios reales.
+- Se agregaron rutas backend:
+  - `GET/POST /api/v1/subjects`
+  - `PATCH/DELETE /api/v1/subjects/:id`
+  - `GET/POST /api/v1/seedbeds`
+  - `PATCH/DELETE /api/v1/seedbeds/:id`
+  - `GET/POST /api/v1/projects`
+  - `PATCH/DELETE /api/v1/projects/:id`
+  - `GET/POST /api/v1/activities`
+  - `PATCH/DELETE /api/v1/activities/:id`
+- Se aplico alcance por facultad en consultas y escritura academica.
+- Se agregaron validaciones para impedir asociar profesores, coordinadores, responsables, programas, proyectos o actividades fuera de la facultad visible del usuario.
+- Se evita eliminar materias, proyectos o actividades con prestamos asociados.
+- Se evita eliminar semilleros con proyectos o actividades asociados.
+- Se amplio el flujo de prestamos para asociar materia, profesor/grupo, proyecto y actividad.
+- Si el tipo de uso del prestamo es academico, el backend exige materia o profesor/grupo de materia.
+- El formulario interno de prestamos ahora muestra el contexto academico y guarda esos datos reales.
+- Se agregaron paginas frontend reales para:
+  - `/subjects`
+  - `/seedbeds`
+  - `/projects`
+  - `/activities`
+- Las paginas permiten listar, buscar, crear, editar y eliminar segun permiso `academia:gestionar`.
+- Se agrego la opcion `Semilleros` al menu Academico.
+
+## Validaciones ajuste catalogo academico
+
+- `npm.cmd run prisma:validate`: correcto.
+- `npm.cmd run prisma:generate`: correcto.
+- `npm.cmd run prisma:migrate:dev --workspace @silab/backend -- --name add_subject_professors_and_seedbeds`: correcto.
+- `npx.cmd prisma migrate status --schema ../schema_silab_fci.prisma`: correcto, base al dia con 10 migraciones.
+- `npm.cmd run build --workspace @silab/backend`: correcto.
+- `npm.cmd run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm.cmd run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run lint --workspace @silab/frontend`: correcto.
+- `npm.cmd run dev:backend`: compila con 0 errores y Nest inicia correctamente; la ejecucion se corto por timeout despues de confirmar el arranque.

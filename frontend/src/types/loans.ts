@@ -1,5 +1,6 @@
 import type { Equipment, EquipmentUnit, PaginatedResponse } from "@/types/inventory";
 import type { LoanPerson } from "@/types/people";
+import type { ActivityRecord, Project, Subject, SubjectProfessor } from "@/types/academic";
 
 export type EstadoPrestamo =
   | "SOLICITADO"
@@ -84,6 +85,10 @@ export interface Loan {
   codigo: string;
   usuarioSolicitanteId: number | null;
   personaSolicitanteId: number | null;
+  materiaId: number | null;
+  materiaProfesorId: number | null;
+  proyectoId: number | null;
+  actividadId: number | null;
   solicitanteNombre: string | null;
   solicitanteCorreo: string | null;
   solicitanteDocumento: string | null;
@@ -106,6 +111,34 @@ export interface Loan {
     documento: string;
   } | null;
   personaSolicitante: LoanPerson | null;
+  materia: Pick<Subject, "id" | "codigo" | "nombre" | "semestre"> & {
+    programa: {
+      id: number;
+      nombre: string;
+      codigo: string;
+    };
+  } | null;
+  materiaProfesor: Pick<SubjectProfessor, "id" | "grupo" | "periodo"> & {
+    profesor: {
+      id: number;
+      nombre: string;
+      correo: string;
+    };
+  } | null;
+  proyecto: Pick<Project, "id" | "nombre" | "tipo"> & {
+    semillero: {
+      id: number;
+      nombre: string;
+      codigo: string;
+    } | null;
+  } | null;
+  actividad: Pick<ActivityRecord, "id" | "nombre" | "tipo"> & {
+    semillero: {
+      id: number;
+      nombre: string;
+      codigo: string;
+    } | null;
+  } | null;
   aprobadoPor: {
     id: number;
     nombre: string;

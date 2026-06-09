@@ -114,6 +114,11 @@ export class CreateLoanDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
+  materiaProfesorId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
   proyectoId?: number | null;
 
   @Type(() => Number)
