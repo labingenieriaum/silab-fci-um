@@ -8,6 +8,7 @@ import {
   CalendarCheck,
   ChevronRight,
   ClipboardCheck,
+  Contact,
   FileText,
   FlaskConical,
   Home,
@@ -54,7 +55,7 @@ const navGroups = [
         permissions: ["prestamos:solicitar", "prestamos:aprobar", "prestamos:entregar"]
       },
       { label: "Devoluciones", href: "/returns", icon: RotateCcw, permission: "devoluciones:registrar" },
-      { label: "Mantenimientos", href: "/maintenance", icon: Wrench }
+      { label: "Mantenimientos", href: "/maintenance", icon: Wrench, permission: "mantenimiento:gestionar" }
     ]
   },
   {
@@ -80,9 +81,10 @@ const navGroups = [
     label: "Administracion",
     items: [
       { label: "Usuarios", href: "/users", icon: Users, permission: "usuarios:gestionar" },
-      { label: "Reportes", href: "/reports", icon: FileText },
+      { label: "Personas", href: "/people", icon: Contact, permission: "usuarios:gestionar" },
+      { label: "Reportes", href: "/reports", icon: FileText, permission: "reportes:ver" },
       { label: "Auditoria", href: "/audit", icon: Shield, permission: "auditoria:ver" },
-      { label: "Configuracion", href: "/settings", icon: Settings }
+      { label: "Configuracion", href: "/settings", icon: Settings, permission: "usuarios:gestionar" }
     ]
   }
 ] satisfies Array<{ label: string; items: NavItem[] }>;
@@ -97,7 +99,7 @@ const mobileNav = [
   },
   { label: "Inventario", href: "/inventory", icon: Boxes, permission: "inventario:gestionar" },
   { label: "Usuarios", href: "/users", icon: Users, permission: "usuarios:gestionar" },
-  { label: "Reportes", href: "/reports", icon: BarChart3 }
+  { label: "Reportes", href: "/reports", icon: BarChart3, permission: "reportes:ver" }
 ] satisfies NavItem[];
 
 export function AppShell() {

@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import type { Facultad } from "@/types/catalogs";
 import type { Laboratory, PaginatedResponse } from "@/types/inventory";
@@ -46,6 +47,16 @@ export function LaboratoriesPage() {
       }));
     }
   }, [facultiesQuery.data, form.facultadId]);
+
+  const facultyOptions = useMemo(
+    () =>
+      (facultiesQuery.data ?? []).map((faculty) => ({
+        value: String(faculty.id),
+        label: `${faculty.sigla} - ${faculty.nombre}`,
+        searchText: `${faculty.sigla} ${faculty.nombre}`
+      })),
+    [facultiesQuery.data]
+  );
 
   const createMutation = useMutation({
     mutationFn: (payload: LaboratoryFormState) =>
@@ -162,21 +173,15 @@ export function LaboratoriesPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <Field label="Facultad">
-                <select
-                  className="input-control"
+                <SearchableSelect
+                  options={facultyOptions}
                   value={form.facultadId}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, facultadId: event.target.value }))
-                  }
+                  onChange={(value) => setForm((current) => ({ ...current, facultadId: value }))}
+                  placeholder="Seleccionar facultad"
+                  searchPlaceholder="Buscar por sigla o nombre"
+                  emptyLabel="Seleccionar"
                   required
-                >
-                  <option value="">Seleccionar</option>
-                  {(facultiesQuery.data ?? []).map((faculty) => (
-                    <option key={faculty.id} value={faculty.id}>
-                      {faculty.sigla} - {faculty.nombre}
-                    </option>
-                  ))}
-                </select>
+                />
                 {(facultiesQuery.data ?? []).length === 1 && (
                   <span className="mt-1 block text-xs text-muted-foreground">
                     Alcance actual: {(facultiesQuery.data ?? [])[0].sigla}

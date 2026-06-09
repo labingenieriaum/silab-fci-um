@@ -3,18 +3,26 @@ import {
   EstadoCondicionEquipo,
   EstadoEquipo,
   EstadoPrestamo,
+  EstadoSolicitudPublicaPrestamo,
+  RolPersonaPrestamo,
+  TipoEvidenciaDevolucion,
   TipoMovimiento,
   type Prisma
 } from "@prisma/client";
 import { getUserFacultyScope } from "../common/faculty-scope";
 import type { JwtUser } from "../common/types/jwt-user";
+import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { defaultEmailTemplates } from "../settings/settings.service";
 import { ApproveLoanDto } from "./dto/approve-loan.dto";
 import { CreateLoanDto } from "./dto/create-loan.dto";
+import { CreatePublicLoanRequestDto } from "./dto/create-public-loan-request.dto";
 import { DeliverLoanDto } from "./dto/deliver-loan.dto";
 import { ListLoansQueryDto } from "./dto/list-loans-query.dto";
 import { RegisterReturnDto } from "./dto/register-return.dto";
 import { RejectLoanDto } from "./dto/reject-loan.dto";
+import { SendReturnActEmailDto } from "./dto/send-return-act-email.dto";
+import { UpdatePublicLoanRequestDto } from "./dto/update-public-loan-request.dto";
 
 type LoanTx = Prisma.TransactionClient;
 type LoanActionDetail = {
@@ -31,6 +39,7 @@ const loanSelect = {
   id: true,
   codigo: true,
   usuarioSolicitanteId: true,
+  personaSolicitanteId: true,
   materiaId: true,
   proyectoId: true,
   actividadId: true,
@@ -39,6 +48,7 @@ const loanSelect = {
   entregadoPorId: true,
   tipoUso: true,
   fechaSolicitud: true,
+  fechaRequerida: true,
   fechaPrestamo: true,
   fechaAprobacion: true,
   fechaRechazo: true,
@@ -56,6 +66,21 @@ const loanSelect = {
       documento: true
     }
   },
+  personaSolicitante: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      correoInstitucional: true,
+      carrera: true,
+      semestre: true,
+      rol: true,
+      activo: true
+    }
+  },
+  solicitanteNombre: true,
+  solicitanteCorreo: true,
+  solicitanteDocumento: true,
   aprobadoPor: {
     select: {
       id: true,
@@ -162,7 +187,244 @@ const loanSelect = {
 
 @Injectable()
 export class LoansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService
+  ) {}
+
+  async findPublicLoanResources(search?: string) {
+    const normalizedSearch = search?.trim();
+    return this.prisma.equipo.findMany({
+      where: {
+        deletedAt: null,
+        cantidadDisponible: { gt: 0 },
+        estado: EstadoEquipo.DISPONIBLE,
+        OR: normalizedSearch
+          ? [
+              { nombre: { contains: normalizedSearch, mode: "insensitive" } },
+              { codigoInterno: { contains: normalizedSearch, mode: "insensitive" } },
+              { codigoBarras: { contains: normalizedSearch, mode: "insensitive" } },
+              { categoria: { nombre: { contains: normalizedSearch, mode: "insensitive" } } }
+            ]
+          : undefined
+      },
+      select: {
+        id: true,
+        codigoInterno: true,
+        nombre: true,
+        cantidadDisponible: true,
+        requiereSerial: true,
+        categoria: {
+          select: {
+            nombre: true
+          }
+        },
+        ubicacion: {
+          select: {
+            nombre: true,
+            laboratorio: {
+              select: {
+                codigo: true,
+                nombre: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ nombre: "asc" }, { codigoInterno: "asc" }],
+      take: 80
+    });
+  }
+
+  async createPublicLoanRequest(dto: CreatePublicLoanRequestDto) {
+    const loanDate = parseRequestedDate(dto.fechaPrestamo);
+    const returnDate = parseRequestedDate(dto.fechaDevolucionEstimada);
+    const today = startOfDay(new Date());
+
+    if (loanDate < today) {
+      throw new BadRequestException("La fecha de prestamo no puede ser anterior a hoy.");
+    }
+    if (returnDate < loanDate) {
+      throw new BadRequestException("La fecha de devolucion debe ser igual o posterior a la fecha de prestamo.");
+    }
+
+    const days = differenceInLoanDays(loanDate, returnDate);
+    const requestedResource = await this.resolvePublicRequestedResource(dto);
+    const request = await this.prisma.solicitudPublicaPrestamo.create({
+      data: {
+        codigoSolicitud: createPublicRequestCode(),
+        equipoId: requestedResource.equipoId,
+        nombreCompleto: cleanRequiredText(dto.nombreCompleto),
+        correoInstitucional: dto.correoInstitucional.trim().toLowerCase(),
+        codigoRecurso: requestedResource.label,
+        fechaPrestamo: loanDate,
+        fechaDevolucionEstimada: returnDate,
+        diasPrestamo: days,
+        descripcionActividad: cleanRequiredText(dto.descripcionActividad)
+      },
+      select: {
+        id: true,
+        codigoSolicitud: true,
+        equipoId: true,
+        nombreCompleto: true,
+        correoInstitucional: true,
+        codigoRecurso: true,
+        fechaPrestamo: true,
+        fechaDevolucionEstimada: true,
+        diasPrestamo: true,
+        descripcionActividad: true,
+        estado: true,
+        createdAt: true
+      }
+    });
+
+    return request;
+  }
+
+  private async resolvePublicRequestedResource(dto: CreatePublicLoanRequestDto) {
+    if (!dto.equipoId) {
+      return {
+        equipoId: null,
+        label: cleanRequiredText(dto.codigo)
+      };
+    }
+
+    const equipment = await this.prisma.equipo.findFirst({
+      where: {
+        id: dto.equipoId,
+        deletedAt: null,
+        cantidadDisponible: { gt: 0 },
+        estado: EstadoEquipo.DISPONIBLE
+      },
+      select: {
+        id: true,
+        codigoInterno: true,
+        nombre: true
+      }
+    });
+
+    if (!equipment) {
+      throw new BadRequestException("El equipo seleccionado ya no esta disponible para prestamo.");
+    }
+
+    return {
+      equipoId: equipment.id,
+      label: `${equipment.codigoInterno} - ${equipment.nombre}`
+    };
+  }
+
+  async findPublicLoanRequests(user: JwtUser) {
+    const scopedFacultyId = getUserFacultyScope(user);
+    return this.prisma.solicitudPublicaPrestamo.findMany({
+      where: {
+        deletedAt: null,
+        OR: scopedFacultyId
+          ? [
+              { equipoId: null },
+              {
+                equipo: {
+                  ubicacion: {
+                    laboratorio: {
+                      facultadId: scopedFacultyId
+                    }
+                  }
+                }
+              }
+            ]
+          : undefined
+      },
+      select: {
+        id: true,
+        codigoSolicitud: true,
+        equipoId: true,
+        nombreCompleto: true,
+        correoInstitucional: true,
+        codigoRecurso: true,
+        fechaPrestamo: true,
+        fechaDevolucionEstimada: true,
+        diasPrestamo: true,
+        descripcionActividad: true,
+        estado: true,
+        observacionesInternas: true,
+        createdAt: true,
+        equipo: {
+          select: {
+            codigoInterno: true,
+            nombre: true,
+            cantidadDisponible: true
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100
+    });
+  }
+
+  async updatePublicLoanRequest(user: JwtUser, id: number, dto: UpdatePublicLoanRequestDto) {
+    const scopedFacultyId = getUserFacultyScope(user);
+    const request = await this.prisma.solicitudPublicaPrestamo.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        OR: scopedFacultyId
+          ? [
+              { equipoId: null },
+              {
+                equipo: {
+                  ubicacion: {
+                    laboratorio: {
+                      facultadId: scopedFacultyId
+                    }
+                  }
+                }
+              }
+            ]
+          : undefined
+      },
+      select: {
+        id: true,
+        codigoSolicitud: true,
+        nombreCompleto: true,
+        correoInstitucional: true
+      }
+    });
+
+    if (!request) {
+      throw new NotFoundException("Solicitud publica no encontrada.");
+    }
+
+    const note = cleanNullableText(dto.observacionesInternas);
+    if (dto.estado === EstadoSolicitudPublicaPrestamo.RECHAZADA && !note) {
+      throw new BadRequestException("Para rechazar la solicitud debes registrar una nota.");
+    }
+
+    const updated = await this.prisma.solicitudPublicaPrestamo.update({
+      where: { id },
+      data: {
+        estado: dto.estado,
+        observacionesInternas: note
+      }
+    });
+
+    if (dto.estado === EstadoSolicitudPublicaPrestamo.CONVERTIDA) {
+      const templates = await this.getEmailTemplates();
+      const template = templates.publicLoanApproved ?? defaultEmailTemplates.publicLoanApproved;
+      const values = {
+        name: request.nombreCompleto,
+        requestCode: request.codigoSolicitud,
+        loanCode: "",
+        returnId: "",
+        extraMessage: note ?? ""
+      };
+      await this.mailService.sendMail({
+        to: request.correoInstitucional,
+        subject: renderTemplate(template.subject, values),
+        html: renderTemplate(template.body, values)
+      });
+    }
+
+    return updated;
+  }
 
   async findLoans(user: JwtUser, query: ListLoansQueryDto) {
     const scopedFacultyId = getUserFacultyScope(user);
@@ -195,7 +457,25 @@ export class LoansService {
               usuarioSolicitante: {
                 correo: { contains: query.search, mode: "insensitive" }
               }
-            }
+            },
+            {
+              personaSolicitante: {
+                nombre: { contains: query.search, mode: "insensitive" }
+              }
+            },
+            {
+              personaSolicitante: {
+                codigo: { contains: query.search, mode: "insensitive" }
+              }
+            },
+            {
+              personaSolicitante: {
+                correoInstitucional: { contains: query.search, mode: "insensitive" }
+              }
+            },
+            { solicitanteNombre: { contains: query.search, mode: "insensitive" } },
+            { solicitanteCorreo: { contains: query.search, mode: "insensitive" } },
+            { solicitanteDocumento: { contains: query.search, mode: "insensitive" } }
           ]
         : undefined
     };
@@ -226,9 +506,17 @@ export class LoansService {
   }
 
   async createLoan(user: JwtUser, dto: CreateLoanDto) {
+    const requester = await this.resolveLoanRequester(user, dto);
+    const requiredDate = new Date(dto.fechaRequerida);
+    if (Number.isNaN(requiredDate.getTime())) {
+      throw new BadRequestException("La fecha requerida del prestamo es invalida.");
+    }
+    if (requiredDate < new Date()) {
+      throw new BadRequestException("La fecha requerida del prestamo no puede ser anterior al momento actual.");
+    }
     const estimatedReturn = new Date(dto.fechaDevolucionEstimada);
-    if (Number.isNaN(estimatedReturn.getTime()) || estimatedReturn <= new Date()) {
-      throw new BadRequestException("La fecha estimada de devolucion debe ser futura.");
+    if (Number.isNaN(estimatedReturn.getTime()) || estimatedReturn <= requiredDate) {
+      throw new BadRequestException("La fecha estimada de devolucion debe ser posterior a la fecha requerida.");
     }
 
     for (const detail of dto.detalles) {
@@ -251,11 +539,16 @@ export class LoansService {
 
     return this.prisma.prestamo.create({
       data: {
-        usuarioSolicitanteId: user.sub,
+        usuarioSolicitanteId: requester.usuarioSolicitanteId,
+        personaSolicitanteId: requester.personaSolicitanteId,
+        solicitanteNombre: requester.solicitanteNombre,
+        solicitanteCorreo: requester.solicitanteCorreo,
+        solicitanteDocumento: requester.solicitanteDocumento,
         materiaId: dto.materiaId ?? null,
         proyectoId: dto.proyectoId ?? null,
         actividadId: dto.actividadId ?? null,
         tipoUso: dto.tipoUso,
+        fechaRequerida: requiredDate,
         fechaDevolucionEstimada: estimatedReturn,
         observaciones: cleanNullableText(dto.observaciones),
         detalles: {
@@ -407,6 +700,7 @@ export class LoansService {
     }
 
     const detailsById = new Map(loan.detalles.map((detail) => [detail.id, detail]));
+    this.validateReturnEvidences(dto);
 
     return this.prisma.$transaction(async (tx) => {
       const returnRecord = await tx.devolucion.create({
@@ -418,6 +712,17 @@ export class LoansService {
         select: {
           id: true
         }
+      });
+
+      await tx.devolucionEvidencia.createMany({
+        data: dto.evidencias.map((evidence) => ({
+          devolucionId: returnRecord.id,
+          tipo: evidence.tipo,
+          nombreArchivo: cleanNullableText(evidence.nombreArchivo),
+          mimeType: evidence.mimeType,
+          contenidoBase64: evidence.contenidoBase64,
+          firmanteNombre: cleanNullableText(evidence.firmanteNombre)
+        }))
       });
 
       for (const returnDetail of dto.detalles) {
@@ -474,7 +779,7 @@ export class LoansService {
         (detail) => detail.cantidadEntregada <= detail.cantidadDevuelta
       );
 
-      return tx.prestamo.update({
+      const updatedLoan = await tx.prestamo.update({
         where: { id },
         data: {
           estado: completed ? EstadoPrestamo.DEVUELTO : EstadoPrestamo.DEVUELTO_PARCIAL,
@@ -482,7 +787,157 @@ export class LoansService {
         },
         select: loanSelect
       });
+
+      return {
+        loan: updatedLoan,
+        returnId: returnRecord.id
+      };
     });
+  }
+
+  async findReturnAct(user: JwtUser, id: number) {
+    const scopedFacultyId = getUserFacultyScope(user);
+    const returnRecord = await this.prisma.devolucion.findFirst({
+      where: {
+        id,
+        prestamo: scopedFacultyId
+          ? {
+              detalles: {
+                some: {
+                  equipo: {
+                    ubicacion: {
+                      laboratorio: {
+                        facultadId: scopedFacultyId
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          : undefined
+      },
+      select: {
+        id: true,
+        fechaDevolucion: true,
+        observaciones: true,
+        usuarioRecibe: {
+          select: {
+            nombre: true,
+            correo: true
+          }
+        },
+        prestamo: {
+          select: {
+            id: true,
+            codigo: true,
+            estado: true,
+            solicitanteNombre: true,
+            solicitanteCorreo: true,
+            solicitanteDocumento: true,
+            personaSolicitante: {
+              select: {
+                codigo: true,
+                nombre: true,
+                correoInstitucional: true,
+                carrera: true,
+                semestre: true,
+                rol: true
+              }
+            },
+            fechaSolicitud: true,
+            fechaDevolucionEstimada: true,
+            usuarioSolicitante: {
+              select: {
+                nombre: true,
+                correo: true,
+                documento: true
+              }
+            }
+          }
+        },
+        detalles: {
+          select: {
+            id: true,
+            cantidad: true,
+            estadoDevolucion: true,
+            observaciones: true,
+            equipo: {
+              select: {
+                codigoInterno: true,
+                nombre: true
+              }
+            },
+            equipoUnidad: {
+              select: {
+                codigoInterno: true,
+                serial: true
+              }
+            }
+          }
+        },
+        evidencias: {
+          select: {
+            id: true,
+            tipo: true,
+            nombreArchivo: true,
+            mimeType: true,
+            contenidoBase64: true,
+            firmanteNombre: true,
+            createdAt: true
+          },
+          orderBy: { id: "asc" }
+        }
+      }
+    });
+
+    if (!returnRecord) {
+      throw new NotFoundException("Acta de devolucion no encontrada.");
+    }
+
+    return returnRecord;
+  }
+
+  async sendReturnActEmail(user: JwtUser, id: number, dto: SendReturnActEmailDto) {
+    const act = await this.findReturnAct(user, id);
+    const templates = await this.getEmailTemplates();
+    const template = templates.returnAct ?? defaultEmailTemplates.returnAct;
+    const requester = resolveRequesterForMail(act.prestamo);
+    const values = {
+      name: requester.name,
+      returnId: String(act.id),
+      loanCode: act.prestamo.codigo,
+      extraMessage: dto.message ?? ""
+    };
+
+    await this.mailService.sendMail({
+      to: dto.to ?? requester.email,
+      subject: renderTemplate(template.subject, values),
+      html: `${renderTemplate(template.body, values)}${renderReturnActSummary(act)}`
+    });
+
+    return { sent: true, to: dto.to ?? requester.email };
+  }
+
+  async sendLoanDueSoonEmail(user: JwtUser, id: number) {
+    const loan = await this.findLoanOrThrow(user, id);
+    const requester = resolveRequesterForMail(loan);
+    const templates = await this.getEmailTemplates();
+    const template = templates.loanDueSoon ?? defaultEmailTemplates.loanDueSoon;
+    const values = {
+      name: requester.name,
+      loanCode: loan.codigo,
+      returnId: "",
+      requestCode: "",
+      extraMessage: ""
+    };
+
+    await this.mailService.sendMail({
+      to: requester.email,
+      subject: renderTemplate(template.subject, values),
+      html: renderTemplate(template.body, values)
+    });
+
+    return { sent: true, to: requester.email };
   }
 
   async findReturns(user: JwtUser, loanId?: number) {
@@ -779,6 +1234,160 @@ export class LoansService {
       });
     }
   }
+
+  private validateReturnEvidences(dto: RegisterReturnDto) {
+    const types = new Set(dto.evidencias.map((evidence) => evidence.tipo));
+    if (!types.has(TipoEvidenciaDevolucion.FOTO)) {
+      throw new BadRequestException("Debes adjuntar al menos una foto de los equipos devueltos.");
+    }
+    for (const type of [
+      TipoEvidenciaDevolucion.FIRMA_COORDINADOR,
+      TipoEvidenciaDevolucion.FIRMA_ADMIN,
+      TipoEvidenciaDevolucion.FIRMA_SOLICITANTE
+    ]) {
+      if (!types.has(type)) {
+        throw new BadRequestException("Debes registrar las firmas de coordinacion, administrador y solicitante.");
+      }
+    }
+
+    for (const evidence of dto.evidencias) {
+      const content = evidence.contenidoBase64.trim();
+      if (!content.startsWith("data:")) {
+        throw new BadRequestException("Las evidencias deben enviarse como data URL base64.");
+      }
+      if (content.length > 2_500_000) {
+        throw new BadRequestException("Cada evidencia debe pesar menos de 2.5 MB.");
+      }
+      if (evidence.tipo === TipoEvidenciaDevolucion.FOTO && !evidence.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Las fotos de devolucion deben ser imagenes.");
+      }
+    }
+  }
+
+  private async getEmailTemplates() {
+    const record = await this.prisma.configuracionSistema.findUnique({
+      where: { clave: "email.templates" }
+    });
+    return record
+      ? { ...defaultEmailTemplates, ...JSON.parse(record.valor) }
+      : defaultEmailTemplates;
+  }
+
+  private async resolveLoanRequester(user: JwtUser, dto: CreateLoanDto) {
+    if (dto.personaSolicitanteId) {
+      const person = await this.prisma.personaPrestamo.findFirst({
+        where: {
+          id: dto.personaSolicitanteId,
+          deletedAt: null,
+          activo: true
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!person) {
+        throw new BadRequestException("La persona seleccionada no existe o no esta activa.");
+      }
+
+      return {
+        personaSolicitanteId: person.id,
+        usuarioSolicitanteId: null,
+        solicitanteNombre: null,
+        solicitanteCorreo: null,
+        solicitanteDocumento: null
+      };
+    }
+
+    if (dto.personaCodigo || dto.personaNombre || dto.personaCorreoInstitucional) {
+      const codigo = cleanNullableText(dto.personaCodigo);
+      const nombre = cleanNullableText(dto.personaNombre);
+      const email = cleanNullableText(dto.personaCorreoInstitucional)?.toLowerCase() ?? null;
+      const rol = dto.personaRol;
+      if (!codigo || !nombre || !email || !rol) {
+        throw new BadRequestException("Registra codigo, nombre, correo y rol de la persona.");
+      }
+      if (rol !== RolPersonaPrestamo.ESTUDIANTE && dto.personaSemestre) {
+        throw new BadRequestException("El semestre solo aplica para estudiantes.");
+      }
+
+      const person = await this.prisma.personaPrestamo.upsert({
+        where: { codigo },
+        create: {
+          codigo,
+          nombre,
+          correoInstitucional: email,
+          carrera: cleanNullableText(dto.personaCarrera),
+          semestre: rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.personaSemestre ?? null) : null,
+          rol,
+          activo: true
+        },
+        update: {
+          nombre,
+          correoInstitucional: email,
+          carrera: cleanNullableText(dto.personaCarrera),
+          semestre: rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.personaSemestre ?? null) : null,
+          rol,
+          activo: true,
+          deletedAt: null
+        },
+        select: {
+          id: true
+        }
+      });
+
+      return {
+        personaSolicitanteId: person.id,
+        usuarioSolicitanteId: null,
+        solicitanteNombre: null,
+        solicitanteCorreo: null,
+        solicitanteDocumento: null
+      };
+    }
+
+    if (dto.usuarioSolicitanteId) {
+      const scopedFacultyId = getUserFacultyScope(user);
+      const requester = await this.prisma.usuario.findFirst({
+        where: {
+          id: dto.usuarioSolicitanteId,
+          deletedAt: null,
+          activo: true,
+          facultadId: scopedFacultyId
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!requester) {
+        throw new BadRequestException("El solicitante seleccionado no existe o no esta activo.");
+      }
+
+      return {
+        personaSolicitanteId: null,
+        usuarioSolicitanteId: requester.id,
+        solicitanteNombre: null,
+        solicitanteCorreo: null,
+        solicitanteDocumento: null
+      };
+    }
+
+    const name = cleanNullableText(dto.solicitanteNombre);
+    const email = cleanNullableText(dto.solicitanteCorreo)?.toLowerCase() ?? null;
+    const document = cleanNullableText(dto.solicitanteDocumento);
+
+    if (!name || !email || !document) {
+      throw new BadRequestException("Registra nombre, correo y documento del solicitante manual.");
+    }
+
+    return {
+      personaSolicitanteId: null,
+      usuarioSolicitanteId: null,
+      solicitanteNombre: name,
+      solicitanteCorreo: email,
+      solicitanteDocumento: document
+    };
+  }
 }
 
 function resolveEquipmentState(counts: {
@@ -805,4 +1414,90 @@ function resolveEquipmentState(counts: {
 function cleanNullableText(value?: string | null) {
   const cleaned = value?.trim();
   return cleaned ? cleaned : null;
+}
+
+function cleanRequiredText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function parseRequestedDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestException("Fecha invalida.");
+  }
+  return startOfDay(date);
+}
+
+function startOfDay(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function differenceInLoanDays(start: Date, end: Date) {
+  const day = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.floor((end.getTime() - start.getTime()) / day) + 1);
+}
+
+function createPublicRequestCode() {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const timePart = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `PUB-PRE-${datePart}-${timePart}-${suffix}`;
+}
+
+function renderTemplate(template: string, values: Record<string, string>) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? "");
+}
+
+function renderReturnActSummary(act: Awaited<ReturnType<LoansService["findReturnAct"]>>) {
+  const rows = act.detalles
+    .map(
+      (detail) =>
+        `<tr><td>${escapeHtml(detail.equipo.codigoInterno)}</td><td>${escapeHtml(detail.equipo.nombre)}</td><td>${detail.cantidad}</td><td>${escapeHtml(detail.estadoDevolucion)}</td></tr>`
+    )
+    .join("");
+  return `<hr><p><strong>Acta de devolucion:</strong> ${act.id}</p><p><strong>Recibido por:</strong> ${escapeHtml(act.usuarioRecibe.nombre)}</p><table border="1" cellpadding="6" cellspacing="0"><thead><tr><th>Codigo</th><th>Equipo</th><th>Cantidad</th><th>Condicion</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function resolveRequesterForMail(loan: {
+  usuarioSolicitante?: { nombre: string; correo: string; documento?: string } | null;
+  personaSolicitante?: {
+    nombre: string;
+    correoInstitucional?: string | null;
+    codigo?: string | null;
+  } | null;
+  solicitanteNombre?: string | null;
+  solicitanteCorreo?: string | null;
+  solicitanteDocumento?: string | null;
+}) {
+  const email =
+    loan.personaSolicitante?.correoInstitucional ??
+    loan.usuarioSolicitante?.correo ??
+    loan.solicitanteCorreo;
+  if (!email) {
+    throw new BadRequestException("El prestamo no tiene correo de solicitante para enviar notificaciones.");
+  }
+  return {
+    name:
+      loan.personaSolicitante?.nombre ??
+      loan.usuarioSolicitante?.nombre ??
+      loan.solicitanteNombre ??
+      "Solicitante",
+    email,
+    document:
+      loan.personaSolicitante?.codigo ??
+      loan.usuarioSolicitante?.documento ??
+      loan.solicitanteDocumento ??
+      ""
+  };
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

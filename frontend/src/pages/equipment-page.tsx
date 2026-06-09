@@ -5,6 +5,7 @@ import {
   Barcode,
   Boxes,
   CheckCircle2,
+  Download,
   Loader2,
   Pencil,
   Plus,
@@ -16,12 +17,16 @@ import {
   X,
   XCircle
 } from "lucide-react";
+import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
 import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import { formatEnum } from "@/lib/format";
+import { formatLocationPathById } from "@/lib/location-path";
 import type {
   Equipment,
   EquipmentCategory,
@@ -168,8 +173,18 @@ export function EquipmentPage() {
   });
 
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
-  const categories = categoriesQuery.data ?? [];
+  const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
+  const categoryOptions = useMemo(
+    () =>
+      categories.map((category) => ({
+        value: String(category.id),
+        label: category.nombre,
+        description: category.descripcion ?? undefined,
+        searchText: `${category.nombre} ${category.descripcion ?? ""}`
+      })),
+    [categories]
+  );
   const isEditing = editingEquipment !== null;
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
@@ -338,7 +353,13 @@ export function EquipmentPage() {
                       </td>
                       <td className="px-4 py-3">{item.categoria.nombre}</td>
                       <td className="px-4 py-3">
-                        <div>{item.ubicacion.nombre}</div>
+                        <div>
+                          {formatLocationPathById(
+                            item.ubicacionId,
+                            locations,
+                            `${item.ubicacion.laboratorio.codigo} / ${item.ubicacion.nombre}`
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {item.ubicacion.laboratorio.codigo} - {item.ubicacion.laboratorio.nombre}
                         </div>
@@ -352,6 +373,15 @@ export function EquipmentPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Descargar tarjeta QR y barras"
+                            title="Descargar tarjeta QR y barras"
+                            onClick={() => downloadEquipmentLabel(item)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -401,19 +431,15 @@ export function EquipmentPage() {
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Categoria">
-                  <select
-                    className="input-control"
+                  <SearchableSelect
+                    options={categoryOptions}
                     value={form.categoriaId}
-                    onChange={(event) => updateForm("categoriaId", event.target.value)}
+                    onChange={(value) => updateForm("categoriaId", value)}
+                    placeholder="Seleccionar categoria"
+                    searchPlaceholder="Buscar por nombre o descripcion"
+                    emptyLabel="Seleccionar"
                     required
-                  >
-                    <option value="">Seleccionar</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </Field>
                 <Field label="Ubicacion">
                   <LocationCombobox
@@ -589,6 +615,126 @@ export function EquipmentPage() {
 
 function getQrPayload(qrToken: string) {
   return `SILAB-FCI:EQUIPO:${qrToken}`;
+}
+
+async function downloadEquipmentLabel(equipment: Equipment) {
+  const dataUrl = await createEquipmentLabelDataUrl(equipment);
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = `tarjeta-${safeFilePart(equipment.codigoInterno)}.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function createEquipmentLabelDataUrl(equipment: Equipment) {
+  const dpi = 300;
+  const pxPerCm = dpi / 2.54;
+  const width = Math.round(4 * pxPerCm);
+  const height = Math.round(5.5 * pxPerCm);
+  const qrSize = Math.round(3 * pxPerCm);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("No fue posible crear la tarjeta.");
+  }
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, width - 3, height - 3);
+
+  drawCenteredText(ctx, equipment.nombre, width / 2, 34, {
+    maxWidth: width - 34,
+    size: 22,
+    weight: 700
+  });
+
+  const qrDataUrl = await QRCode.toDataURL(getQrPayload(equipment.qrToken), {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: qrSize,
+    color: {
+      dark: "#111827",
+      light: "#ffffff"
+    }
+  });
+  const qrImage = await loadImage(qrDataUrl);
+  const qrX = Math.round((width - qrSize) / 2);
+  ctx.drawImage(qrImage, qrX, 58, qrSize, qrSize);
+
+  drawCenteredText(ctx, equipment.codigoInterno, width / 2, 435, {
+    maxWidth: width - 34,
+    size: 20,
+    weight: 700
+  });
+  drawCenteredText(ctx, equipment.qrToken, width / 2, 465, {
+    maxWidth: width - 34,
+    size: 14,
+    weight: 500
+  });
+
+  const barcodeValue = equipment.codigoBarras || equipment.codigoInterno;
+  const barcodeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(barcodeSvg, barcodeValue, {
+    format: "CODE128",
+    width: 2,
+    height: 48,
+    margin: 0,
+    displayValue: false
+  });
+  const barcodeDataUrl = svgToDataUrl(barcodeSvg);
+  const barcodeImage = await loadImage(barcodeDataUrl);
+  const barcodeWidth = width - 64;
+  const barcodeHeight = 58;
+  ctx.drawImage(barcodeImage, 32, 498, barcodeWidth, barcodeHeight);
+  drawCenteredText(ctx, barcodeValue, width / 2, 582, {
+    maxWidth: width - 34,
+    size: 15,
+    weight: 600
+  });
+
+  return canvas.toDataURL("image/png");
+}
+
+function drawCenteredText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  options: { maxWidth: number; size: number; weight: number }
+) {
+  ctx.fillStyle = "#111827";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${options.weight} ${options.size}px Inter, Arial, sans-serif`;
+  let output = text.trim();
+  while (ctx.measureText(output).width > options.maxWidth && output.length > 4) {
+    output = `${output.slice(0, -4)}...`;
+  }
+  ctx.fillText(output, x, y);
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("No fue posible cargar la imagen generada."));
+    image.src = src;
+  });
+}
+
+function svgToDataUrl(svg: SVGElement) {
+  const serialized = new XMLSerializer().serializeToString(svg);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+}
+
+function safeFilePart(value: string) {
+  return value.trim().replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "equipo";
 }
 
 function getShortQrToken(qrToken: string) {

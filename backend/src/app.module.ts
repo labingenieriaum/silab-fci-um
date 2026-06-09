@@ -9,9 +9,14 @@ import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { InventoryModule } from "./inventory/inventory.module";
 import { LaboratoriesModule } from "./laboratories/laboratories.module";
 import { LoansModule } from "./loans/loans.module";
+import { MailModule } from "./mail/mail.module";
+import { MaintenanceModule } from "./maintenance/maintenance.module";
+import { PeopleModule } from "./people/people.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { ReportsModule } from "./reports/reports.module";
 import { validateEnv } from "./config/env.validation";
 import { RolesModule } from "./roles/roles.module";
+import { SettingsModule } from "./settings/settings.module";
 import { UsersModule } from "./users/users.module";
 
 @Module({
@@ -28,7 +33,12 @@ import { UsersModule } from "./users/users.module";
     AcademicModule,
     LaboratoriesModule,
     InventoryModule,
-    LoansModule
+    LoansModule,
+    MailModule,
+    MaintenanceModule,
+    PeopleModule,
+    ReportsModule,
+    SettingsModule
   ],
   controllers: [AppController],
   providers: [

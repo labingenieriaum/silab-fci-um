@@ -1,4 +1,5 @@
 import type { Equipment, EquipmentUnit, PaginatedResponse } from "@/types/inventory";
+import type { LoanPerson } from "@/types/people";
 
 export type EstadoPrestamo =
   | "SOLICITADO"
@@ -81,9 +82,14 @@ export interface LoanReturn {
 export interface Loan {
   id: number;
   codigo: string;
-  usuarioSolicitanteId: number;
+  usuarioSolicitanteId: number | null;
+  personaSolicitanteId: number | null;
+  solicitanteNombre: string | null;
+  solicitanteCorreo: string | null;
+  solicitanteDocumento: string | null;
   tipoUso: TipoUso;
   fechaSolicitud: string;
+  fechaRequerida: string | null;
   fechaPrestamo: string | null;
   fechaAprobacion: string | null;
   fechaRechazo: string | null;
@@ -98,7 +104,8 @@ export interface Loan {
     nombre: string;
     correo: string;
     documento: string;
-  };
+  } | null;
+  personaSolicitante: LoanPerson | null;
   aprobadoPor: {
     id: number;
     nombre: string;

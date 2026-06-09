@@ -10,13 +10,28 @@ import { LaboratoriesPage } from "@/pages/laboratories-page";
 import { LocationsPage } from "@/pages/locations-page";
 import { LoginPage } from "@/pages/login-page";
 import { LoansPage } from "@/pages/loans-page";
+import { MaintenancePage } from "@/pages/maintenance-page";
+import { PeoplePage } from "@/pages/people-page";
 import { PlaceholderPage } from "@/pages/placeholder-page";
+import { PublicLoanRequestPage } from "@/pages/public-loan-request-page";
+import { ReportsPage } from "@/pages/reports-page";
+import { ReturnActPage } from "@/pages/return-act-page";
+import { SettingsPage } from "@/pages/settings-page";
 import { UsersPage } from "@/pages/users-page";
+import { VerifyReportPage } from "@/pages/verify-report-page";
 
 export const router = createBrowserRouter([
   {
     path: "/login",
     element: <LoginPage />
+  },
+  {
+    path: "/verify-report/:code",
+    element: <VerifyReportPage />
+  },
+  {
+    path: "/solicitar-prestamo",
+    element: <PublicLoanRequestPage />
   },
   {
     path: "/",
@@ -58,13 +73,12 @@ export const router = createBrowserRouter([
             element: <LoansPage />
           },
           {
+            path: "returns/:id/acta",
+            element: <ReturnActPage />
+          },
+          {
             path: "maintenance",
-            element: (
-              <PlaceholderPage
-                title="Mantenimientos"
-                description="Control de equipos en mantenimiento preventivo y correctivo."
-              />
-            )
+            element: <MaintenancePage />
           },
           {
             path: "faculties",
@@ -102,13 +116,12 @@ export const router = createBrowserRouter([
             element: <UsersPage />
           },
           {
+            path: "people",
+            element: <PeoplePage />
+          },
+          {
             path: "reports",
-            element: (
-              <PlaceholderPage
-                title="Reportes"
-                description="Reportes PDF y Excel para coordinacion, decano y directores."
-              />
-            )
+            element: <ReportsPage />
           },
           {
             path: "audit",
@@ -121,12 +134,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "settings",
-            element: (
-              <PlaceholderPage
-                title="Configuracion"
-                description="Parametros operativos de SILAB FCI."
-              />
-            )
+            element: <SettingsPage />
           }
         ]
       }

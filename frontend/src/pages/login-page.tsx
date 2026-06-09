@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { ArrowRight, Building2, Lock, Mail } from "lucide-react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/auth-context";
 import { Button } from "@/components/ui/button";
 
@@ -73,7 +73,7 @@ export function LoginPage() {
             <p className="text-xl font-extrabold leading-none">
               SILAB <span className="text-[#9bc95c]">FCI</span>
             </p>
-            <p className="mt-1 text-xs text-[#cfe4d7]">Sistema de Inventario y Laboratorios</p>
+            <p className="mt-1 text-xs text-[#cfe4d7]">Sistema de Información de Infraestructura y Laboratorios</p>
           </div>
         </div>
 
@@ -146,6 +146,12 @@ export function LoginPage() {
           <p className="mt-6 text-center text-xs leading-5 text-muted-foreground">
             Al ingresar aceptas las politicas de uso de laboratorios. Si tienes problemas de acceso, contacta a Coordinacion de Laboratorios.
           </p>
+
+          <div className="mt-5 text-center text-sm">
+            <Link className="font-medium text-[#155c37] hover:underline" to="/solicitar-prestamo">
+              Solicitar prestamo sin iniciar sesion
+            </Link>
+          </div>
         </form>
       </section>
     </main>

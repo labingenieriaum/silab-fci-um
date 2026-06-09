@@ -23,6 +23,24 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   return parseResponse<T>(response);
 }
 
+export async function downloadApiFile(path: string, filename: string) {
+  const response = await sendRequest(path);
+
+  if (!response.ok) {
+    await parseResponse(response);
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 async function sendRequest(path: string, init?: RequestInit) {
   const token = getAccessToken();
   const response = await fetch(`${apiUrl}${path}`, {

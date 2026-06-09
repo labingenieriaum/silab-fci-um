@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import { formatEnum } from "@/lib/format";
+import { formatLocationPath } from "@/lib/location-path";
 import { cn } from "@/lib/utils";
 import type { Location } from "@/types/inventory";
 
@@ -37,7 +38,7 @@ export function LocationCombobox({
       : selectedLocation;
 
   const filteredLocations = useMemo(
-    () => locations.filter((location) => matchesLocationSearch(location, search)),
+    () => locations.filter((location) => matchesLocationSearch(location, locations, search)),
     [locations, search]
   );
 
@@ -58,7 +59,9 @@ export function LocationCombobox({
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
       >
-        <span className="truncate">{selectedLocation?.nombre ?? placeholder}</span>
+        <span className="truncate">
+          {selectedLocation ? formatLocationPath(selectedLocation, locations) : placeholder}
+        </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
 
@@ -99,7 +102,7 @@ export function LocationCombobox({
                 onClick={() => selectValue(String(location.id))}
                 onMouseEnter={() => setHoveredId(location.id)}
               >
-                <span className="block truncate">{location.nombre}</span>
+                <span className="block truncate">{formatLocationPath(location, locations)}</span>
                 <span className="block truncate text-xs opacity-80">
                   {formatEnum(location.tipo)}
                   {location.ubicacionPadre ? ` - Padre: ${location.ubicacionPadre.nombre}` : " - Sin padre"}
@@ -116,7 +119,7 @@ export function LocationCombobox({
           {hoveredLocation && (
             <div className="border-t bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <div className="font-medium text-foreground">
-                {hoveredLocation.nombre} - {formatEnum(hoveredLocation.tipo)}
+                {formatLocationPath(hoveredLocation, locations)} - {formatEnum(hoveredLocation.tipo)}
               </div>
               <div>Laboratorio: {hoveredLocation.laboratorio.nombre}</div>
               <div>
@@ -133,11 +136,15 @@ export function LocationCombobox({
   );
 }
 
-function matchesLocationSearch(location: Location, search: string) {
+function matchesLocationSearch(location: Location, locations: Location[], search: string) {
   const normalized = search.trim().toLowerCase();
   if (!normalized) return true;
   return (
     location.nombre.toLowerCase().includes(normalized) ||
+    location.laboratorio.codigo.toLowerCase().includes(normalized) ||
+    location.laboratorio.nombre.toLowerCase().includes(normalized) ||
+    formatLocationPath(location, locations).toLowerCase().includes(normalized) ||
+    (location.ubicacionPadre?.nombre ?? "").toLowerCase().includes(normalized) ||
     (location.descripcion ?? "").toLowerCase().includes(normalized)
   );
 }
