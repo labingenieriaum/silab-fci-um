@@ -21,6 +21,11 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAuth } from "@/features/auth/auth-context";
 import { apiRequest } from "@/lib/api";
 import { formatDateTime, formatEnum } from "@/lib/format";
+import type {
+  PaginatedActivities,
+  PaginatedProjects,
+  PaginatedSubjects
+} from "@/types/academic";
 import type { Equipment, EquipmentUnit, PaginatedResponse } from "@/types/inventory";
 import type {
   EstadoCondicionEquipo,
@@ -44,6 +49,10 @@ interface LoanFormState {
   equipoUnidadId: string;
   cantidadSolicitada: string;
   tipoUso: TipoUso;
+  materiaId: string;
+  materiaProfesorId: string;
+  proyectoId: string;
+  actividadId: string;
   fechaRequerida: string;
   fechaDevolucionEstimada: string;
   observaciones: string;
@@ -102,6 +111,10 @@ const initialForm: LoanFormState = {
   equipoUnidadId: "",
   cantidadSolicitada: "1",
   tipoUso: "ACADEMICO",
+  materiaId: "",
+  materiaProfesorId: "",
+  proyectoId: "",
+  actividadId: "",
   fechaRequerida: toDatetimeLocal(new Date(Date.now() + 60 * 60 * 1000)),
   fechaDevolucionEstimada: toDatetimeLocal(new Date(Date.now() + 25 * 60 * 60 * 1000)),
   observaciones: ""
@@ -175,6 +188,21 @@ export function LoansPage() {
     queryFn: () => apiRequest<PaginatedPeople>("/people?page=1&pageSize=200&activo=true")
   });
 
+  const subjectsQuery = useQuery({
+    queryKey: ["subjects", "loan-form"],
+    queryFn: () => apiRequest<PaginatedSubjects>("/subjects?page=1&pageSize=200&activo=true")
+  });
+
+  const projectsQuery = useQuery({
+    queryKey: ["projects", "loan-form"],
+    queryFn: () => apiRequest<PaginatedProjects>("/projects?page=1&pageSize=200&activo=true")
+  });
+
+  const activitiesQuery = useQuery({
+    queryKey: ["activities", "loan-form"],
+    queryFn: () => apiRequest<PaginatedActivities>("/activities?page=1&pageSize=200&activo=true")
+  });
+
   const selectedEquipment = useMemo(
     () => equipmentQuery.data?.data.find((item) => String(item.id) === form.equipoId),
     [equipmentQuery.data, form.equipoId]
@@ -189,6 +217,9 @@ export function LoansPage() {
   const loans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const requesterPeople = useMemo(() => peopleQuery.data?.data ?? [], [peopleQuery.data]);
+  const subjects = useMemo(() => subjectsQuery.data?.data ?? [], [subjectsQuery.data]);
+  const projects = useMemo(() => projectsQuery.data?.data ?? [], [projectsQuery.data]);
+  const activities = useMemo(() => activitiesQuery.data?.data ?? [], [activitiesQuery.data]);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0] ?? null;
 
   const requesterOptions = useMemo(
@@ -211,6 +242,57 @@ export function LoansPage() {
         searchText: `${item.codigoInterno} ${item.codigoBarras ?? ""} ${item.nombre} ${item.categoria?.nombre ?? ""}`
       })),
     [equipment]
+  );
+
+  const subjectOptions = useMemo(
+    () =>
+      subjects.map((subject) => ({
+        value: String(subject.id),
+        label: `${subject.codigo} - ${subject.nombre}`,
+        description: subject.programa?.nombre,
+        searchText: `${subject.codigo} ${subject.nombre} ${subject.programa?.nombre ?? ""} ${subject.profesores.map((professor) => professor.profesor.nombre).join(" ")}`
+      })),
+    [subjects]
+  );
+
+  const selectedSubject = useMemo(
+    () => subjects.find((subject) => String(subject.id) === form.materiaId),
+    [subjects, form.materiaId]
+  );
+
+  const subjectProfessorOptions = useMemo(
+    () =>
+      (selectedSubject?.profesores ?? [])
+        .filter((professor) => professor.activo)
+        .map((professor) => ({
+          value: String(professor.id),
+          label: `${professor.profesor.nombre} / ${professor.grupo}`,
+          description: professor.periodo ?? professor.profesor.correo,
+          searchText: `${professor.profesor.nombre} ${professor.profesor.correo} ${professor.grupo} ${professor.periodo ?? ""}`
+        })),
+    [selectedSubject]
+  );
+
+  const projectOptions = useMemo(
+    () =>
+      projects.map((project) => ({
+        value: String(project.id),
+        label: project.nombre,
+        description: project.semillero?.nombre ?? formatEnum(project.tipo),
+        searchText: `${project.nombre} ${project.tipo} ${project.semillero?.nombre ?? ""}`
+      })),
+    [projects]
+  );
+
+  const activityOptions = useMemo(
+    () =>
+      activities.map((activity) => ({
+        value: String(activity.id),
+        label: activity.nombre,
+        description: activity.semillero?.nombre ?? formatEnum(activity.tipo),
+        searchText: `${activity.nombre} ${activity.tipo} ${activity.semillero?.nombre ?? ""}`
+      })),
+    [activities]
   );
 
   const unitOptions = useMemo(
@@ -270,6 +352,12 @@ export function LoansPage() {
               : undefined,
           personaRol: payload.solicitanteModo === "NUEVA" ? payload.personaRol : undefined,
           tipoUso: payload.tipoUso,
+          materiaId: payload.materiaId ? Number(payload.materiaId) : undefined,
+          materiaProfesorId: payload.materiaProfesorId
+            ? Number(payload.materiaProfesorId)
+            : undefined,
+          proyectoId: payload.proyectoId ? Number(payload.proyectoId) : undefined,
+          actividadId: payload.actividadId ? Number(payload.actividadId) : undefined,
           fechaRequerida: new Date(payload.fechaRequerida).toISOString(),
           fechaDevolucionEstimada: new Date(payload.fechaDevolucionEstimada).toISOString(),
           observaciones: payload.observaciones || undefined,
@@ -440,6 +528,7 @@ export function LoansPage() {
       ...current,
       [key]: value,
       ...(key === "equipoId" ? { equipoUnidadId: "", cantidadSolicitada: "1" } : {}),
+      ...(key === "materiaId" ? { materiaProfesorId: "" } : {}),
       ...(key === "personaRol" && value !== "ESTUDIANTE" ? { personaSemestre: "" } : {})
     }));
   }
@@ -466,6 +555,10 @@ export function LoansPage() {
     }
     if (!form.equipoId) {
       setFeedback("Selecciona un equipo.");
+      return;
+    }
+    if (form.tipoUso === "ACADEMICO" && !form.materiaId) {
+      setFeedback("Selecciona la materia asociada al prestamo academico.");
       return;
     }
     if (selectedEquipment?.requiereSerial && !form.equipoUnidadId) {
@@ -625,7 +718,12 @@ export function LoansPage() {
                           </div>
                         ))}
                       </td>
-                      <td className="px-4 py-3">{formatEnum(loan.tipoUso)}</td>
+                      <td className="px-4 py-3">
+                        <div>{formatEnum(loan.tipoUso)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {getLoanAcademicContext(loan)}
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <span className={getLoanBadgeClass(loan.estado)}>{formatEnum(loan.estado)}</span>
                       </td>
@@ -918,6 +1016,54 @@ export function LoansPage() {
                         placeholder="Seleccionar uso"
                         searchPlaceholder="Buscar uso"
                         emptyLabel="Seleccionar"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Materia">
+                      <SearchableSelect
+                        options={subjectOptions}
+                        value={form.materiaId}
+                        onChange={(value) => updateForm("materiaId", value)}
+                        placeholder="Seleccionar materia"
+                        searchPlaceholder="Buscar materia"
+                        emptyLabel="Sin materia"
+                        required={form.tipoUso === "ACADEMICO"}
+                      />
+                    </Field>
+                    <Field label="Profesor / grupo">
+                      <SearchableSelect
+                        options={subjectProfessorOptions}
+                        value={form.materiaProfesorId}
+                        onChange={(value) => updateForm("materiaProfesorId", value)}
+                        placeholder="Seleccionar grupo"
+                        searchPlaceholder="Buscar profesor o grupo"
+                        emptyLabel="Sin grupo"
+                        disabled={!form.materiaId}
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Proyecto">
+                      <SearchableSelect
+                        options={projectOptions}
+                        value={form.proyectoId}
+                        onChange={(value) => updateForm("proyectoId", value)}
+                        placeholder="Seleccionar proyecto"
+                        searchPlaceholder="Buscar proyecto"
+                        emptyLabel="Sin proyecto"
+                      />
+                    </Field>
+                    <Field label="Actividad">
+                      <SearchableSelect
+                        options={activityOptions}
+                        value={form.actividadId}
+                        onChange={(value) => updateForm("actividadId", value)}
+                        placeholder="Seleccionar actividad"
+                        searchPlaceholder="Buscar actividad"
+                        emptyLabel="Sin actividad"
                       />
                     </Field>
                   </div>
@@ -1309,6 +1455,19 @@ function getLoanRequesterEmail(loan: Loan) {
     loan.solicitanteCorreo ??
     "Sin correo"
   );
+}
+
+function getLoanAcademicContext(loan: Loan) {
+  const parts = [
+    loan.materia ? `${loan.materia.codigo} - ${loan.materia.nombre}` : "",
+    loan.materiaProfesor
+      ? `${loan.materiaProfesor.profesor.nombre} / ${loan.materiaProfesor.grupo}`
+      : "",
+    loan.proyecto ? `Proyecto: ${loan.proyecto.nombre}` : "",
+    loan.actividad ? `Actividad: ${loan.actividad.nombre}` : ""
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" | ") : "Sin contexto academico";
 }
 
 function canReturn(state: EstadoPrestamo) {

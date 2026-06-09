@@ -155,6 +155,8 @@ model Facultad {
   programas    Programa[]
   laboratorios Laboratorio[]
   usuarios     Usuario[]
+  semilleros   Semillero[]
+  actividades  Actividad[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -173,6 +175,7 @@ model Programa {
   usuarios  Usuario[]
   materias  Materia[]
   proyectos Proyecto[]
+  actividades Actividad[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -255,6 +258,9 @@ model Usuario {
   prestamosRechazados     Prestamo[]             @relation("UsuarioRechazaPrestamo")
   prestamosEntregados     Prestamo[]             @relation("UsuarioEntregaPrestamo")
   proyectosResponsable    Proyecto[]             @relation("UsuarioResponsableProyecto")
+  actividadesResponsable  Actividad[]            @relation("UsuarioResponsableActividad")
+  materiasProfesor        MateriaProfesor[]       @relation("UsuarioProfesorMateria")
+  semillerosCoordinados   Semillero[]            @relation("UsuarioCoordinadorSemillero")
   movimientos             InventarioMovimiento[] @relation("UsuarioEjecutaMovimiento")
   mantenimientos          Mantenimiento[]        @relation("UsuarioResponsableMantenimiento")
   devolucionesRecibidas   Devolucion[]           @relation("UsuarioRecibeDevolucion")
@@ -447,11 +453,12 @@ model Materia {
   programaId Int     @map("programa_id")
   nombre     String
   codigo     String
-  semestre   Int
+  semestre   Int?
   activa     Boolean @default(true)
 
   programa  Programa   @relation(fields: [programaId], references: [id])
   prestamos Prestamo[]
+  profesores MateriaProfesor[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -462,10 +469,59 @@ model Materia {
   @@map("materias")
 }
 
+model MateriaProfesor {
+  id         Int     @id @default(autoincrement())
+  materiaId  Int     @map("materia_id")
+  profesorId Int     @map("profesor_id")
+  grupo      String  @default("GENERAL")
+  periodo    String?
+  activo     Boolean @default(true)
+
+  materia   Materia    @relation(fields: [materiaId], references: [id])
+  profesor  Usuario    @relation("UsuarioProfesorMateria", fields: [profesorId], references: [id])
+  prestamos Prestamo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([materiaId, profesorId, grupo])
+  @@index([materiaId])
+  @@index([profesorId])
+  @@index([activo])
+  @@map("materias_profesores")
+}
+
+model Semillero {
+  id            Int     @id @default(autoincrement())
+  facultadId    Int     @map("facultad_id")
+  coordinadorId Int     @map("coordinador_id")
+  nombre        String
+  codigo        String
+  descripcion   String?
+  activo        Boolean @default(true)
+
+  facultad    Facultad  @relation(fields: [facultadId], references: [id])
+  coordinador Usuario   @relation("UsuarioCoordinadorSemillero", fields: [coordinadorId], references: [id])
+  proyectos   Proyecto[]
+  actividades Actividad[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([facultadId, codigo])
+  @@index([facultadId])
+  @@index([coordinadorId])
+  @@index([activo])
+  @@map("semilleros")
+}
+
 model Proyecto {
   id                     Int          @id @default(autoincrement())
   programaId             Int          @map("programa_id")
   responsableId          Int          @map("responsable_id")
+  semilleroId            Int?         @map("semillero_id")
   nombre                 String
   tipo                   TipoProyecto
   semilleroInvestigacion String?      @map("semillero_investigacion")
@@ -474,6 +530,7 @@ model Proyecto {
 
   programa    Programa   @relation(fields: [programaId], references: [id])
   responsable Usuario    @relation("UsuarioResponsableProyecto", fields: [responsableId], references: [id])
+  semillero   Semillero? @relation(fields: [semilleroId], references: [id])
   prestamos   Prestamo[]
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -482,22 +539,35 @@ model Proyecto {
 
   @@index([programaId])
   @@index([responsableId])
+  @@index([semilleroId])
   @@map("proyectos")
 }
 
 model Actividad {
-  id          Int           @id @default(autoincrement())
-  nombre      String
-  tipo        TipoActividad
-  descripcion String?
-  activa      Boolean       @default(true)
+  id            Int           @id @default(autoincrement())
+  facultadId    Int           @map("facultad_id")
+  programaId    Int?          @map("programa_id")
+  responsableId Int?          @map("responsable_id")
+  semilleroId   Int?          @map("semillero_id")
+  nombre        String
+  tipo          TipoActividad
+  descripcion   String?
+  activa        Boolean       @default(true)
 
-  prestamos Prestamo[]
+  facultad    Facultad  @relation(fields: [facultadId], references: [id])
+  programa    Programa? @relation(fields: [programaId], references: [id])
+  responsable Usuario?  @relation("UsuarioResponsableActividad", fields: [responsableId], references: [id])
+  semillero   Semillero? @relation(fields: [semilleroId], references: [id])
+  prestamos   Prestamo[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  @@index([facultadId])
+  @@index([programaId])
+  @@index([responsableId])
+  @@index([semilleroId])
   @@map("actividades")
 }
 
@@ -510,6 +580,7 @@ model Prestamo {
   solicitanteCorreo       String?        @map("solicitante_correo")
   solicitanteDocumento    String?        @map("solicitante_documento")
   materiaId               Int?           @map("materia_id")
+  materiaProfesorId       Int?           @map("materia_profesor_id")
   proyectoId              Int?           @map("proyecto_id")
   actividadId             Int?           @map("actividad_id")
   aprobadoPorId           Int?           @map("aprobado_por_id")
@@ -531,6 +602,7 @@ model Prestamo {
   usuarioSolicitante Usuario?         @relation("UsuarioSolicitaPrestamo", fields: [usuarioSolicitanteId], references: [id])
   personaSolicitante PersonaPrestamo? @relation(fields: [personaSolicitanteId], references: [id])
   materia            Materia?         @relation(fields: [materiaId], references: [id])
+  materiaProfesor    MateriaProfesor? @relation(fields: [materiaProfesorId], references: [id])
   proyecto           Proyecto?        @relation(fields: [proyectoId], references: [id])
   actividad          Actividad?       @relation(fields: [actividadId], references: [id])
   aprobadoPor        Usuario?         @relation("UsuarioApruebaPrestamo", fields: [aprobadoPorId], references: [id])
@@ -549,6 +621,7 @@ model Prestamo {
   @@index([personaSolicitanteId])
   @@index([solicitanteCorreo])
   @@index([materiaId])
+  @@index([materiaProfesorId])
   @@index([proyectoId])
   @@index([actividadId])
   @@index([estado])

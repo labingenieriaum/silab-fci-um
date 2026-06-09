@@ -41,6 +41,7 @@ const loanSelect = {
   usuarioSolicitanteId: true,
   personaSolicitanteId: true,
   materiaId: true,
+  materiaProfesorId: true,
   proyectoId: true,
   actividadId: true,
   aprobadoPorId: true,
@@ -81,6 +82,63 @@ const loanSelect = {
   solicitanteNombre: true,
   solicitanteCorreo: true,
   solicitanteDocumento: true,
+  materia: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      semestre: true,
+      programa: {
+        select: {
+          id: true,
+          nombre: true,
+          codigo: true
+        }
+      }
+    }
+  },
+  materiaProfesor: {
+    select: {
+      id: true,
+      grupo: true,
+      periodo: true,
+      profesor: {
+        select: {
+          id: true,
+          nombre: true,
+          correo: true
+        }
+      }
+    }
+  },
+  proyecto: {
+    select: {
+      id: true,
+      nombre: true,
+      tipo: true,
+      semillero: {
+        select: {
+          id: true,
+          nombre: true,
+          codigo: true
+        }
+      }
+    }
+  },
+  actividad: {
+    select: {
+      id: true,
+      nombre: true,
+      tipo: true,
+      semillero: {
+        select: {
+          id: true,
+          nombre: true,
+          codigo: true
+        }
+      }
+    }
+  },
   aprobadoPor: {
     select: {
       id: true,
@@ -507,6 +565,7 @@ export class LoansService {
 
   async createLoan(user: JwtUser, dto: CreateLoanDto) {
     const requester = await this.resolveLoanRequester(user, dto);
+    const academicContext = await this.resolveLoanAcademicContext(user, dto);
     const requiredDate = new Date(dto.fechaRequerida);
     if (Number.isNaN(requiredDate.getTime())) {
       throw new BadRequestException("La fecha requerida del prestamo es invalida.");
@@ -544,9 +603,10 @@ export class LoansService {
         solicitanteNombre: requester.solicitanteNombre,
         solicitanteCorreo: requester.solicitanteCorreo,
         solicitanteDocumento: requester.solicitanteDocumento,
-        materiaId: dto.materiaId ?? null,
-        proyectoId: dto.proyectoId ?? null,
-        actividadId: dto.actividadId ?? null,
+        materiaId: academicContext.materiaId,
+        materiaProfesorId: academicContext.materiaProfesorId,
+        proyectoId: academicContext.proyectoId,
+        actividadId: academicContext.actividadId,
         tipoUso: dto.tipoUso,
         fechaRequerida: requiredDate,
         fechaDevolucionEstimada: estimatedReturn,
@@ -1023,6 +1083,108 @@ export class LoansService {
     }
 
     return equipment;
+  }
+
+  private async resolveLoanAcademicContext(user: JwtUser, dto: CreateLoanDto) {
+    const scopedFacultyId = getUserFacultyScope(user);
+    let materiaId = dto.materiaId ?? null;
+    const materiaProfesorId = dto.materiaProfesorId ?? null;
+
+    if (materiaProfesorId) {
+      const assignment = await this.prisma.materiaProfesor.findFirst({
+        where: {
+          id: materiaProfesorId,
+          deletedAt: null,
+          activo: true,
+          materia: {
+            deletedAt: null,
+            programa: {
+              facultadId: scopedFacultyId
+            }
+          }
+        },
+        select: {
+          materiaId: true
+        }
+      });
+
+      if (!assignment) {
+        throw new BadRequestException("El grupo/profesor de la materia no existe o no pertenece a tu facultad.");
+      }
+      if (materiaId && materiaId !== assignment.materiaId) {
+        throw new BadRequestException("La materia y el grupo/profesor seleccionados no coinciden.");
+      }
+      materiaId = assignment.materiaId;
+    }
+
+    if (materiaId) {
+      const subject = await this.prisma.materia.findFirst({
+        where: {
+          id: materiaId,
+          deletedAt: null,
+          activa: true,
+          programa: {
+            facultadId: scopedFacultyId
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!subject) {
+        throw new BadRequestException("La materia indicada no existe o no pertenece a tu facultad.");
+      }
+    }
+
+    if (dto.tipoUso === "ACADEMICO" && !materiaId) {
+      throw new BadRequestException("Selecciona la materia asociada al prestamo academico.");
+    }
+
+    if (dto.proyectoId) {
+      const project = await this.prisma.proyecto.findFirst({
+        where: {
+          id: dto.proyectoId,
+          deletedAt: null,
+          activo: true,
+          programa: {
+            facultadId: scopedFacultyId
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!project) {
+        throw new BadRequestException("El proyecto indicado no existe o no pertenece a tu facultad.");
+      }
+    }
+
+    if (dto.actividadId) {
+      const activity = await this.prisma.actividad.findFirst({
+        where: {
+          id: dto.actividadId,
+          deletedAt: null,
+          activa: true,
+          facultadId: scopedFacultyId
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (!activity) {
+        throw new BadRequestException("La actividad indicada no existe o no pertenece a tu facultad.");
+      }
+    }
+
+    return {
+      materiaId,
+      materiaProfesorId,
+      proyectoId: dto.proyectoId ?? null,
+      actividadId: dto.actividadId ?? null
+    };
   }
 
   private async ensureUnitAvailable(user: JwtUser, equipmentId: number, unitId: number) {

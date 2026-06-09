@@ -1,5 +1,11 @@
 import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/components/layout/app-shell";
+import {
+  ActivitiesPage,
+  ProjectsPage,
+  SeedbedsPage,
+  SubjectsPage
+} from "@/pages/academic-catalog-pages";
 import { ProtectedRoute } from "@/features/auth/protected-route";
 import { CategoriesPage } from "@/pages/categories-page";
 import { DashboardPage } from "@/pages/dashboard-page";
@@ -86,30 +92,19 @@ export const router = createBrowserRouter([
           },
           {
             path: "subjects",
-            element: (
-              <PlaceholderPage
-                title="Materias"
-                description="Materias asociadas a programas academicos."
-              />
-            )
+            element: <SubjectsPage />
+          },
+          {
+            path: "seedbeds",
+            element: <SeedbedsPage />
           },
           {
             path: "projects",
-            element: (
-              <PlaceholderPage
-                title="Proyectos"
-                description="Proyectos academicos, investigativos y de extension."
-              />
-            )
+            element: <ProjectsPage />
           },
           {
             path: "activities",
-            element: (
-              <PlaceholderPage
-                title="Actividades"
-                description="Actividades asociadas al uso de equipos."
-              />
-            )
+            element: <ActivitiesPage />
           },
           {
             path: "users",
