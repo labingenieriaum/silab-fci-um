@@ -781,106 +781,56 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm.cmd run lint --workspace @silab/frontend`: correcto.
 - `npm.cmd run dev:backend`: compila con 0 errores y Nest inicia correctamente; la ejecucion se corto por timeout despues de confirmar el arranque.
 
-## Ajuste responsables academicos usuario/persona
+## Ajuste solicitudes publicas, conversion a prestamo y acta de entrega
 
-- En semilleros, proyectos y actividades el coordinador/responsable ahora puede ser:
-  - Usuario del sistema.
-  - Persona registrada en Administracion > Personas.
-- Se agrego endpoint `GET /api/v1/academic-people` para cargar personas activas como opciones academicas.
-- Se agregaron columnas nuevas:
-  - `semilleros.coordinador_persona_id`.
-  - `proyectos.responsable_persona_id`.
-  - `actividades.responsable_persona_id`.
-- `semilleros.coordinador_id` y `proyectos.responsable_id` pasaron a ser opcionales para permitir responsables tipo persona.
-- El backend valida que solo se envie usuario o persona, no ambos.
-- Semilleros y proyectos siguen exigiendo un responsable; actividades pueden quedar sin responsable.
-- Los desplegables de Semilleros, Proyectos y Actividades ahora muestran un buscador unico con usuarios del sistema y personas registradas.
-- Se agrego migracion `backend/prisma/migrations/20260609194000_add_people_to_academic_responsibles/migration.sql`.
+- Se ajusto el flujo de solicitudes publicas:
+  - Al aprobar ya no queda solo como `CONVERTIDA`.
+  - Ahora se abre un modal de aprobacion antes de convertir.
+  - En el modal se pueden corregir fecha de prestamo, devolucion estimada, equipo real, unidad serializada, cantidad, tipo de uso y contexto academico.
+  - Al confirmar, el backend crea un `Prestamo` real en estado `APROBADO`.
+  - La solicitud publica queda enlazada con `prestamoConvertidoId`.
+  - La lista de `Solicitudes recientes` se actualiza con el prestamo creado.
+- Se agrego entidad `PrestamoEvidencia` para evidencias del acta de entrega.
+- Se agrego enum `TipoEvidenciaPrestamo`:
+  - `FOTO`
+  - `FIRMA_COORDINADOR`
+  - `FIRMA_SOLICITANTE`
+- La entrega de un prestamo aprobado ahora exige:
+  - Al menos una foto del equipo entregado.
+  - Firma digital de coordinacion o usuario del sistema que entrega.
+  - Firma digital del solicitante.
+- El frontend permite capturar fotos con entrada de camara/galeria en celular usando `capture="environment"`.
+- Se reutilizo el componente de firma digital sobre canvas para capturar firma con mouse, lapiz o dedo.
+- Se agrego endpoint:
+  - `GET /api/v1/loans/:id/delivery-act`
+- Se agrego pagina frontend:
+  - `/loans/:id/acta-entrega`
+- La pagina de acta de entrega permite:
+  - Ver datos del prestamo.
+  - Ver equipos entregados.
+  - Ver fotos capturadas.
+  - Ver firmas digitales.
+  - Imprimir desde navegador.
+  - Descargar PDF desde el endpoint existente de acta de prestamo.
+- El PDF de acta de prestamo ahora reconoce evidencias registradas y lista fotos/firmantes en la seccion de firmas.
+- Se alineo el schema local con dos migraciones que ya estaban aplicadas en la base remota pero faltaban en el repositorio local:
+  - `20260609194000_add_people_to_academic_responsibles`
+  - `20260610102000_add_public_request_applicant_details`
+- Se agrego y aplico la migracion:
+  - `20260610103000_add_delivery_evidence_and_public_request_conversion`
 
-## Validaciones ajuste responsables academicos
+## Validaciones ajuste acta de entrega
 
-- `npm run prisma:format`: correcto.
-- `npm run prisma:validate`: correcto.
-- `npm run prisma:generate`: correcto.
-- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: correcto, migracion aplicada en PostgreSQL remoto `siilab_fci_dev`.
-- `npm run build --workspace @silab/backend`: correcto.
-- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
-- `npm run lint --workspace @silab/backend`: correcto.
-- `npm run lint --workspace @silab/frontend`: correcto.
-
-## Ajuste vinculacion de personas
-
-- En Administracion > Personas el campo antes mostrado como `Carrera` ahora cambia segun el rol:
-  - Estudiante: selector de programa/carrera desde los programas academicos existentes.
-  - Profesor: selector de facultad desde las facultades existentes.
-  - Administrativo: campo libre de dependencia escrito por el administrador.
-- La creacion rapida de persona desde el formulario interno de prestamos usa la misma regla y los mismos selectores.
-- El backend valida en registros manuales que:
-  - El estudiante quede vinculado a un programa academico existente.
-  - El profesor quede vinculado a una facultad existente.
-  - El administrativo tenga dependencia escrita.
-- El backend de prestamos aplica la misma validacion cuando registra una persona nueva durante una solicitud manual.
-- La carga CSV mantiene la columna `carrera`, pero segun el rol representa programa, facultad o dependencia.
-- En carga CSV, si programa/facultad/dependencia viene vacio o no coincide con catalogos, la persona se registra igual con `carrera = null`.
-- El resultado de la carga CSV informa cuantas personas quedaron sin programa/facultad/dependencia y se guardaron en null.
-
-## Validaciones ajuste vinculacion de personas
-
-- `npm run lint --workspace @silab/backend`: correcto.
-- `npm run lint --workspace @silab/frontend`: correcto.
-- `npm run build --workspace @silab/backend`: correcto.
-- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
-
-## Ajuste formulario publico de prestamos
-
-- El formulario publico ahora solicita tipo de solicitante:
-  - Estudiante.
-  - Profesor.
-  - Administrativo.
-- Segun el tipo, el formulario muestra campos condicionales:
-  - Estudiante: codigo estudiantil, programa/carrera desde programas existentes y semestre.
-  - Profesor: cedula y materia.
-  - Administrativo: cedula y dependencia.
-- Se agrego nota para estudiantes indicando que deben escribir codigo estudiantil, no cedula ni tarjeta de identidad.
-- Se agrego endpoint publico `GET /api/v1/public/loan-programs` para cargar programas academicos en el formulario publico.
-- Las solicitudes publicas ahora guardan rol, identificacion, programa, semestre, materia y dependencia.
-- La vista interna de Solicitudes publicas muestra esos datos para revision de coordinacion.
-- Se agrego migracion `backend/prisma/migrations/20260610102000_add_public_request_applicant_details/migration.sql`.
-
-## Validaciones ajuste formulario publico
-
-- `npm run prisma:format`: correcto.
-- `npm run prisma:validate`: correcto.
-- `npm run prisma:generate`: correcto.
-- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: correcto, migracion aplicada en PostgreSQL remoto `siilab_fci_dev`.
-- `npm run build --workspace @silab/backend`: correcto.
-- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
-- `npm run lint --workspace @silab/backend`: correcto.
-- `npm run lint --workspace @silab/frontend`: correcto.
-
-## Correccion fecha formulario publico
-
-- Se corrigio el parseo backend de fechas `YYYY-MM-DD` del formulario publico.
-- Antes `new Date("2026-06-09")` podia interpretarse en UTC y en zona horaria Colombia quedar como el dia anterior.
-- Ahora las fechas de prestamo/devolucion se parsean como fecha local para permitir solicitudes del dia actual correctamente.
-
-## Validaciones correccion fecha formulario publico
-
-- `npm run lint --workspace @silab/backend`: correcto.
-- `npm run build --workspace @silab/backend`: correcto.
-
-## Ajuste pantalla de prestamos y aprobacion publica
-
-- La aprobacion de solicitudes publicas ya no falla si SMTP no esta configurado.
-- Si SMTP aun no tiene autorizacion/configuracion de TI, la solicitud publica se aprueba igual y el envio de correo se omite sin bloquear la operacion.
-- En Prestamos, el formulario interno `Nueva solicitud` paso a abrirse en un modal desde un boton superior.
-- Las solicitudes publicas dejaron de mostrarse como tarjetas laterales y ahora se muestran como tabla debajo de la tabla de prestamos.
-- La tabla de solicitudes publicas muestra maximo 15 registros por pagina con controles Anterior/Siguiente.
-- La pantalla queda preparada para listas largas sin depender de una columna lateral estrecha.
-
-## Validaciones ajuste pantalla de prestamos
-
-- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
-- `npm run lint --workspace @silab/frontend`: correcto.
-- `npm run build --workspace @silab/backend`: correcto.
-- `npm run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run prisma:validate`: correcto.
+- `npm.cmd run prisma:format`: correcto.
+- `npm.cmd run prisma:generate`: correcto.
+- `npx.cmd prisma db execute --config D:\silab\backend\prisma.config.ts --stdin`: correcto, migracion SQL nueva aplicada sin resetear datos.
+- `npx.cmd prisma migrate resolve --config D:\silab\backend\prisma.config.ts --applied 20260610103000_add_delivery_evidence_and_public_request_conversion`: correcto.
+- `npx.cmd prisma migrate status --config D:\silab\backend\prisma.config.ts`: correcto, base al dia con 13 migraciones.
+- `npm.cmd run build --workspace @silab/backend`: correcto.
+- `npm.cmd run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm.cmd run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run lint --workspace @silab/frontend`: correcto.
+- `npm.cmd run dev:backend`: compila con 0 errores y carga rutas nuevas; no tomo el puerto porque ya habia un backend activo en `:3000`.
+- `GET http://localhost:3000/api/v1/health`: correcto.
+- Navegador integrado en `http://localhost:5173/loans`: correcto, sin errores de consola.

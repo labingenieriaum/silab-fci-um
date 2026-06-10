@@ -90,6 +90,16 @@ const loanReportSelect = {
       nombre: true
     }
   },
+  evidencias: {
+    select: {
+      tipo: true,
+      firmanteNombre: true,
+      nombreArchivo: true
+    },
+    orderBy: {
+      id: "asc"
+    }
+  },
   detalles: {
     select: {
       cantidadSolicitada: true,
@@ -382,10 +392,7 @@ export class ReportsService {
           },
           {
             heading: "Firmas",
-            lines: [
-              "Entrega: ________________________________",
-              "Recibe: _________________________________"
-            ]
+            lines: deliveryEvidenceLines(loan)
           }
         ]
       })
@@ -680,4 +687,30 @@ function requesterDocument(loan: {
   solicitanteDocumento?: string | null;
 }) {
   return loan.personaSolicitante?.codigo ?? loan.usuarioSolicitante?.documento ?? loan.solicitanteDocumento ?? "";
+}
+
+function deliveryEvidenceLines(loan: {
+  evidencias?: Array<{
+    tipo: string;
+    firmanteNombre?: string | null;
+    nombreArchivo?: string | null;
+  }>;
+}) {
+  const evidencias = loan.evidencias ?? [];
+  const photos = evidencias.filter((evidence) => evidence.tipo === "FOTO");
+  const signatures = evidencias.filter((evidence) => evidence.tipo !== "FOTO");
+
+  if (!evidencias.length) {
+    return [
+      "Entrega: ________________________________",
+      "Recibe: _________________________________"
+    ];
+  }
+
+  return [
+    `Fotos registradas: ${photos.length}`,
+    ...signatures.map(
+      (signature) => `${signature.tipo}: ${signature.firmanteNombre ?? "Firmante registrado"}`
+    )
+  ];
 }

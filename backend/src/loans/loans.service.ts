@@ -6,7 +6,9 @@ import {
   EstadoSolicitudPublicaPrestamo,
   RolPersonaPrestamo,
   TipoEvidenciaDevolucion,
+  TipoEvidenciaPrestamo,
   TipoMovimiento,
+  TipoUso,
   type Prisma
 } from "@prisma/client";
 import { getUserFacultyScope } from "../common/faculty-scope";
@@ -33,6 +35,29 @@ type LoanActionDetail = {
   cantidadAprobada: number | null;
   cantidadEntregada: number;
   cantidadDevuelta: number;
+};
+
+type LoanAcademicContextInput = Pick<
+  CreateLoanDto,
+  "tipoUso" | "materiaId" | "materiaProfesorId" | "proyectoId" | "actividadId"
+>;
+
+type PublicLoanRequestForConversion = {
+  id: number;
+  codigoSolicitud: string;
+  equipoId: number | null;
+  prestamoConvertidoId: number | null;
+  nombreCompleto: string;
+  correoInstitucional: string;
+  codigoRecurso: string;
+  fechaPrestamo: Date;
+  fechaDevolucionEstimada: Date;
+  descripcionActividad: string;
+  equipo: {
+    id: number;
+    codigoInterno: string;
+    nombre: string;
+  } | null;
 };
 
 const loanSelect = {
@@ -240,6 +265,21 @@ const loanSelect = {
     orderBy: {
       fechaDevolucion: "desc"
     }
+  },
+  evidencias: {
+    select: {
+      id: true,
+      prestamoId: true,
+      tipo: true,
+      nombreArchivo: true,
+      mimeType: true,
+      contenidoBase64: true,
+      firmanteNombre: true,
+      createdAt: true
+    },
+    orderBy: {
+      id: "asc"
+    }
   }
 } satisfies Prisma.PrestamoSelect;
 
@@ -351,6 +391,7 @@ export class LoansService {
         id: true,
         codigoSolicitud: true,
         equipoId: true,
+        prestamoConvertidoId: true,
         nombreCompleto: true,
         correoInstitucional: true,
         rolSolicitante: true,
@@ -450,6 +491,13 @@ export class LoansService {
             nombre: true,
             cantidadDisponible: true
           }
+        },
+        prestamoConvertido: {
+          select: {
+            id: true,
+            codigo: true,
+            estado: true
+          }
         }
       },
       orderBy: { createdAt: "desc" },
@@ -481,8 +529,21 @@ export class LoansService {
       select: {
         id: true,
         codigoSolicitud: true,
+        equipoId: true,
+        prestamoConvertidoId: true,
         nombreCompleto: true,
-        correoInstitucional: true
+        correoInstitucional: true,
+        codigoRecurso: true,
+        fechaPrestamo: true,
+        fechaDevolucionEstimada: true,
+        descripcionActividad: true,
+        equipo: {
+          select: {
+            id: true,
+            codigoInterno: true,
+            nombre: true
+          }
+        }
       }
     });
 
@@ -495,6 +556,10 @@ export class LoansService {
       throw new BadRequestException("Para rechazar la solicitud debes registrar una nota.");
     }
 
+    if (dto.estado === EstadoSolicitudPublicaPrestamo.CONVERTIDA) {
+      return this.convertPublicLoanRequestToLoan(user, request, dto, note);
+    }
+
     const updated = await this.prisma.solicitudPublicaPrestamo.update({
       where: { id },
       data: {
@@ -503,11 +568,161 @@ export class LoansService {
       }
     });
 
-    if (dto.estado === EstadoSolicitudPublicaPrestamo.CONVERTIDA) {
-      await this.trySendPublicApprovalEmail(request, note);
+    return updated;
+  }
+
+  private async convertPublicLoanRequestToLoan(
+    user: JwtUser,
+    request: PublicLoanRequestForConversion,
+    dto: UpdatePublicLoanRequestDto,
+    note: string | null
+  ) {
+    if (request.prestamoConvertidoId) {
+      throw new BadRequestException("Esta solicitud publica ya fue convertida a prestamo.");
     }
 
-    return updated;
+    const equipmentId = dto.equipoId ?? request.equipoId;
+    if (!equipmentId) {
+      throw new BadRequestException("Selecciona un equipo para convertir la solicitud en prestamo real.");
+    }
+
+    const requiredDate = dto.fechaPrestamo ? new Date(dto.fechaPrestamo) : request.fechaPrestamo;
+    const estimatedReturn = dto.fechaDevolucionEstimada
+      ? new Date(dto.fechaDevolucionEstimada)
+      : request.fechaDevolucionEstimada;
+
+    if (Number.isNaN(requiredDate.getTime())) {
+      throw new BadRequestException("La fecha de prestamo es invalida.");
+    }
+    if (Number.isNaN(estimatedReturn.getTime()) || estimatedReturn <= requiredDate) {
+      throw new BadRequestException("La devolucion estimada debe ser posterior a la fecha de prestamo.");
+    }
+    if (requiredDate < new Date()) {
+      throw new BadRequestException("La fecha de prestamo no puede ser anterior al momento actual.");
+    }
+
+    const equipment = await this.ensureEquipmentInScope(user, equipmentId);
+    const unitId = dto.equipoUnidadId ?? null;
+    const quantity = equipment.requiereSerial ? 1 : dto.cantidadAprobada ?? 1;
+
+    if (equipment.requiereSerial && !unitId) {
+      throw new BadRequestException("El equipo serializado requiere seleccionar una unidad para aprobar.");
+    }
+    if (!equipment.requiereSerial && unitId) {
+      throw new BadRequestException("El equipo no serializado no debe incluir unidad.");
+    }
+    await this.ensureEquipmentAvailableForQuantity(user, equipmentId, unitId, quantity);
+
+    const tipoUso = dto.tipoUso ?? TipoUso.OTRO;
+    const academicContext = await this.resolveLoanAcademicContext(user, {
+      tipoUso,
+      materiaId: dto.materiaId,
+      materiaProfesorId: dto.materiaProfesorId,
+      proyectoId: dto.proyectoId,
+      actividadId: dto.actividadId
+    });
+
+    const converted = await this.prisma.$transaction(async (tx) => {
+      const loan = await tx.prestamo.create({
+        data: {
+          solicitanteNombre: cleanRequiredText(request.nombreCompleto),
+          solicitanteCorreo: request.correoInstitucional.trim().toLowerCase(),
+          solicitanteDocumento: null,
+          materiaId: academicContext.materiaId,
+          materiaProfesorId: academicContext.materiaProfesorId,
+          proyectoId: academicContext.proyectoId,
+          actividadId: academicContext.actividadId,
+          tipoUso,
+          fechaRequerida: requiredDate,
+          fechaDevolucionEstimada: estimatedReturn,
+          estado: EstadoPrestamo.APROBADO,
+          aprobadoPorId: user.sub,
+          fechaAprobacion: new Date(),
+          observaciones: [
+            `Solicitud publica ${request.codigoSolicitud}`,
+            request.descripcionActividad,
+            note ? `Nota interna: ${note}` : ""
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          detalles: {
+            create: {
+              equipoId: equipmentId,
+              equipoUnidadId: unitId,
+              cantidadSolicitada: quantity,
+              cantidadAprobada: quantity,
+              observaciones: request.codigoRecurso
+            }
+          }
+        },
+        select: {
+          id: true,
+          codigo: true,
+          estado: true
+        }
+      });
+
+      return tx.solicitudPublicaPrestamo.update({
+        where: { id: request.id },
+        data: {
+          estado: EstadoSolicitudPublicaPrestamo.CONVERTIDA,
+          observacionesInternas: note,
+          prestamoConvertidoId: loan.id,
+          equipoId: equipmentId,
+          codigoRecurso: `${equipment.codigoInterno} - ${equipment.nombre}`,
+          fechaPrestamo: requiredDate,
+          fechaDevolucionEstimada: estimatedReturn,
+          diasPrestamo: differenceInLoanDays(startOfDay(requiredDate), startOfDay(estimatedReturn))
+        },
+        select: {
+          id: true,
+          codigoSolicitud: true,
+          equipoId: true,
+          prestamoConvertidoId: true,
+          nombreCompleto: true,
+          correoInstitucional: true,
+          codigoRecurso: true,
+          fechaPrestamo: true,
+          fechaDevolucionEstimada: true,
+          diasPrestamo: true,
+          descripcionActividad: true,
+          estado: true,
+          observacionesInternas: true,
+          createdAt: true,
+          equipo: {
+            select: {
+              codigoInterno: true,
+              nombre: true,
+              cantidadDisponible: true
+            }
+          },
+          prestamoConvertido: {
+            select: {
+              id: true,
+              codigo: true,
+              estado: true
+            }
+          }
+        }
+      });
+    });
+
+    const templates = await this.getEmailTemplates();
+    const template = templates.publicLoanApproved ?? defaultEmailTemplates.publicLoanApproved;
+    const values = {
+      name: request.nombreCompleto,
+      requestCode: request.codigoSolicitud,
+      loanCode: converted.prestamoConvertido?.codigo ?? "",
+      returnId: "",
+      extraMessage: note ?? ""
+    };
+    await this.mailService.sendMail({
+      to: request.correoInstitucional,
+      subject: renderTemplate(template.subject, values),
+      html: renderTemplate(template.body, values)
+    });
+
+    return converted;
   }
 
   async findLoans(user: JwtUser, query: ListLoansQueryDto) {
@@ -587,6 +802,14 @@ export class LoansService {
     const loan = await this.findLoanOrThrow(user, id);
     await this.markExpiredIfNeeded(loan.id, loan.estado, loan.fechaDevolucionEstimada);
     return this.findLoanOrThrow(user, id);
+  }
+
+  async findLoanDeliveryAct(user: JwtUser, id: number) {
+    const loan = await this.findLoanOrThrow(user, id);
+    if (!loan.evidencias.length) {
+      throw new NotFoundException("Acta de entrega no encontrada para este prestamo.");
+    }
+    return loan;
   }
 
   async createLoan(user: JwtUser, dto: CreateLoanDto) {
@@ -726,6 +949,7 @@ export class LoansService {
     if (loan.estado !== EstadoPrestamo.APROBADO) {
       throw new BadRequestException("Solo se pueden entregar prestamos aprobados.");
     }
+    this.validateDeliveryEvidences(dto);
 
     const deliveryByDetail = new Map(
       (dto.detalles ?? []).map((detail) => [
@@ -738,6 +962,17 @@ export class LoansService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.prestamoEvidencia.createMany({
+        data: dto.evidencias.map((evidence) => ({
+          prestamoId: id,
+          tipo: evidence.tipo,
+          nombreArchivo: cleanNullableText(evidence.nombreArchivo),
+          mimeType: evidence.mimeType,
+          contenidoBase64: evidence.contenidoBase64,
+          firmanteNombre: cleanNullableText(evidence.firmanteNombre)
+        }))
+      });
+
       for (const detail of loan.detalles) {
         const approved = detail.cantidadAprobada ?? 0;
         if (approved < 1) {
@@ -1098,6 +1333,7 @@ export class LoansService {
       },
       select: {
         id: true,
+        codigoInterno: true,
         nombre: true,
         requiereSerial: true,
         cantidadDisponible: true
@@ -1111,7 +1347,7 @@ export class LoansService {
     return equipment;
   }
 
-  private async resolveLoanAcademicContext(user: JwtUser, dto: CreateLoanDto) {
+  private async resolveLoanAcademicContext(user: JwtUser, dto: LoanAcademicContextInput) {
     const scopedFacultyId = getUserFacultyScope(user);
     let materiaId = dto.materiaId ?? null;
     const materiaProfesorId = dto.materiaProfesorId ?? null;
@@ -1448,6 +1684,38 @@ export class LoansService {
       }
       if (evidence.tipo === TipoEvidenciaDevolucion.FOTO && !evidence.mimeType.startsWith("image/")) {
         throw new BadRequestException("Las fotos de devolucion deben ser imagenes.");
+      }
+    }
+  }
+
+  private validateDeliveryEvidences(dto: DeliverLoanDto) {
+    const types = new Set(dto.evidencias.map((evidence) => evidence.tipo));
+    if (!types.has(TipoEvidenciaPrestamo.FOTO)) {
+      throw new BadRequestException("Debes adjuntar al menos una foto de los equipos entregados.");
+    }
+
+    for (const type of [
+      TipoEvidenciaPrestamo.FIRMA_COORDINADOR,
+      TipoEvidenciaPrestamo.FIRMA_SOLICITANTE
+    ]) {
+      if (!types.has(type)) {
+        throw new BadRequestException("Debes registrar las firmas de coordinacion y solicitante.");
+      }
+    }
+
+    for (const evidence of dto.evidencias) {
+      const content = evidence.contenidoBase64.trim();
+      if (!content.startsWith("data:")) {
+        throw new BadRequestException("Las evidencias de entrega deben enviarse como data URL base64.");
+      }
+      if (content.length > 2_500_000) {
+        throw new BadRequestException("Cada evidencia debe pesar menos de 2.5 MB.");
+      }
+      if (evidence.tipo === TipoEvidenciaPrestamo.FOTO && !evidence.mimeType.startsWith("image/")) {
+        throw new BadRequestException("Las fotos de entrega deben ser imagenes.");
+      }
+      if (evidence.tipo !== TipoEvidenciaPrestamo.FOTO && evidence.mimeType !== "image/png") {
+        throw new BadRequestException("Las firmas de entrega deben registrarse en formato PNG.");
       }
     }
   }

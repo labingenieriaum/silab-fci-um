@@ -2,9 +2,11 @@ import { FormEvent, PointerEvent, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Camera,
   Check,
   ClipboardCheck,
   Copy,
+  ExternalLink,
   FileQuestion,
   Loader2,
   Mail as MailIcon,
@@ -70,6 +72,7 @@ interface PublicLoanRequest {
   id: number;
   codigoSolicitud: string;
   equipoId: number | null;
+  prestamoConvertidoId: number | null;
   nombreCompleto: string;
   correoInstitucional: string;
   rolSolicitante: RolPersonaPrestamo;
@@ -90,6 +93,11 @@ interface PublicLoanRequest {
     nombre: string;
     cantidadDisponible: number;
   } | null;
+  prestamoConvertido: {
+    id: number;
+    codigo: string;
+    estado: EstadoPrestamo;
+  } | null;
 }
 
 interface ReturnEvidencePhoto {
@@ -104,6 +112,21 @@ interface ReturnMutationResponse {
 }
 
 type ReturnSignatureKey = "coordinador" | "admin" | "solicitante";
+type DeliverySignatureKey = "coordinador" | "solicitante";
+
+interface PublicApprovalFormState {
+  equipoId: string;
+  equipoUnidadId: string;
+  cantidadAprobada: string;
+  fechaPrestamo: string;
+  fechaDevolucionEstimada: string;
+  tipoUso: TipoUso;
+  materiaId: string;
+  materiaProfesorId: string;
+  proyectoId: string;
+  actividadId: string;
+  observacionesInternas: string;
+}
 
 const initialForm: LoanFormState = {
   solicitanteModo: "PERSONA",
@@ -126,6 +149,22 @@ const initialForm: LoanFormState = {
   fechaDevolucionEstimada: toDatetimeLocal(new Date(Date.now() + 25 * 60 * 60 * 1000)),
   observaciones: ""
 };
+
+function publicApprovalInitialState(request: PublicLoanRequest): PublicApprovalFormState {
+  return {
+    equipoId: request.equipoId ? String(request.equipoId) : "",
+    equipoUnidadId: "",
+    cantidadAprobada: "1",
+    fechaPrestamo: toDatetimeLocal(new Date(request.fechaPrestamo)),
+    fechaDevolucionEstimada: toDatetimeLocal(new Date(request.fechaDevolucionEstimada)),
+    tipoUso: "OTRO",
+    materiaId: "",
+    materiaProfesorId: "",
+    proyectoId: "",
+    actividadId: "",
+    observacionesInternas: request.observacionesInternas ?? ""
+  };
+}
 
 const returnConditions: EstadoCondicionEquipo[] = [
   "BUENO",
@@ -165,6 +204,14 @@ export function LoansPage() {
   const [loanFormOpen, setLoanFormOpen] = useState(false);
   const [publicRequestPage, setPublicRequestPage] = useState(1);
   const [publicRequestNotes, setPublicRequestNotes] = useState<Record<number, string>>({});
+  const [publicApprovalRequest, setPublicApprovalRequest] = useState<PublicLoanRequest | null>(null);
+  const [publicApprovalForm, setPublicApprovalForm] = useState<PublicApprovalFormState | null>(null);
+  const [deliveryPhotos, setDeliveryPhotos] = useState<ReturnEvidencePhoto[]>([]);
+  const [deliverySignatures, setDeliverySignatures] = useState<Record<DeliverySignatureKey, string>>({
+    coordinador: "",
+    solicitante: ""
+  });
+  const [lastDeliveryActLoanId, setLastDeliveryActLoanId] = useState<number | null>(null);
   const [returnPhotos, setReturnPhotos] = useState<ReturnEvidencePhoto[]>([]);
   const [returnSignatures, setReturnSignatures] = useState<Record<ReturnSignatureKey, string>>({
     coordinador: "",
@@ -231,6 +278,17 @@ export function LoansPage() {
     queryKey: ["equipment-units", form.equipoId],
     enabled: Boolean(selectedEquipment?.requiereSerial && form.equipoId),
     queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${form.equipoId}/units`)
+  });
+
+  const approvalSelectedEquipment = useMemo(
+    () => equipmentQuery.data?.data.find((item) => String(item.id) === publicApprovalForm?.equipoId),
+    [equipmentQuery.data, publicApprovalForm?.equipoId]
+  );
+
+  const approvalUnitsQuery = useQuery({
+    queryKey: ["equipment-units", "public-approval", publicApprovalForm?.equipoId],
+    enabled: Boolean(approvalSelectedEquipment?.requiereSerial && publicApprovalForm?.equipoId),
+    queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${publicApprovalForm?.equipoId}/units`)
   });
 
   const loans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
@@ -321,6 +379,24 @@ export function LoansPage() {
     [selectedSubject]
   );
 
+  const approvalSelectedSubject = useMemo(
+    () => subjects.find((subject) => String(subject.id) === publicApprovalForm?.materiaId),
+    [subjects, publicApprovalForm?.materiaId]
+  );
+
+  const approvalSubjectProfessorOptions = useMemo(
+    () =>
+      (approvalSelectedSubject?.profesores ?? [])
+        .filter((professor) => professor.activo)
+        .map((professor) => ({
+          value: String(professor.id),
+          label: `${professor.profesor.nombre} / ${professor.grupo}`,
+          description: professor.periodo ?? professor.profesor.correo,
+          searchText: `${professor.profesor.nombre} ${professor.profesor.correo} ${professor.grupo} ${professor.periodo ?? ""}`
+        })),
+    [approvalSelectedSubject]
+  );
+
   const projectOptions = useMemo(
     () =>
       projects.map((project) => ({
@@ -354,6 +430,18 @@ export function LoansPage() {
           searchText: `${unit.codigoInterno} ${unit.serial ?? ""}`
         })),
     [unitsQuery.data]
+  );
+  const approvalUnitOptions = useMemo(
+    () =>
+      (approvalUnitsQuery.data ?? [])
+        .filter((unit) => unit.estado === "DISPONIBLE")
+        .map((unit) => ({
+          value: String(unit.id),
+          label: `${unit.codigoInterno}${unit.serial ? ` / ${unit.serial}` : ""}`,
+          description: formatEnum(unit.estado),
+          searchText: `${unit.codigoInterno} ${unit.serial ?? ""}`
+        })),
+    [approvalUnitsQuery.data]
   );
   const returnConditionOptions = useMemo(
     () =>
@@ -464,14 +552,38 @@ export function LoansPage() {
   });
 
   const deliverMutation = useMutation({
-    mutationFn: (loanId: number) =>
-      apiRequest<Loan>(`/loans/${loanId}/deliver`, {
+    mutationFn: (loan: Loan) =>
+      apiRequest<Loan>(`/loans/${loan.id}/deliver`, {
         method: "PATCH",
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          evidencias: [
+            ...deliveryPhotos.map((photo) => ({
+              tipo: "FOTO",
+              nombreArchivo: photo.name,
+              mimeType: photo.mimeType,
+              contenidoBase64: photo.dataUrl
+            })),
+            {
+              tipo: "FIRMA_COORDINADOR",
+              mimeType: "image/png",
+              contenidoBase64: deliverySignatures.coordinador,
+              firmanteNombre: user?.nombre ?? "Coordinacion"
+            },
+            {
+              tipo: "FIRMA_SOLICITANTE",
+              mimeType: "image/png",
+              contenidoBase64: deliverySignatures.solicitante,
+              firmanteNombre: getLoanRequesterName(loan)
+            }
+          ]
+        })
       }),
     onSuccess: async (loan) => {
       setFeedback("Entrega registrada.");
       setSelectedLoanId(loan.id);
+      setLastDeliveryActLoanId(loan.id);
+      setDeliveryPhotos([]);
+      setDeliverySignatures({ coordinador: "", solicitante: "" });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["loans"] }),
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
@@ -542,19 +654,57 @@ export function LoansPage() {
     mutationFn: ({
       requestId,
       estado,
-      observacionesInternas
+      observacionesInternas,
+      approval
     }: {
       requestId: number;
       estado: EstadoSolicitudPublicaPrestamo;
       observacionesInternas?: string;
+      approval?: Omit<PublicApprovalFormState, "observacionesInternas">;
     }) =>
       apiRequest<PublicLoanRequest>(`/loan-requests/${requestId}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ estado, observacionesInternas })
+        body: JSON.stringify({
+          estado,
+          observacionesInternas,
+          ...(approval
+            ? {
+                equipoId: approval.equipoId ? Number(approval.equipoId) : undefined,
+                equipoUnidadId: approval.equipoUnidadId
+                  ? Number(approval.equipoUnidadId)
+                  : undefined,
+                cantidadAprobada: approval.cantidadAprobada
+                  ? Number(approval.cantidadAprobada)
+                  : undefined,
+                fechaPrestamo: new Date(approval.fechaPrestamo).toISOString(),
+                fechaDevolucionEstimada: new Date(approval.fechaDevolucionEstimada).toISOString(),
+                tipoUso: approval.tipoUso,
+                materiaId: approval.materiaId ? Number(approval.materiaId) : undefined,
+                materiaProfesorId: approval.materiaProfesorId
+                  ? Number(approval.materiaProfesorId)
+                  : undefined,
+                proyectoId: approval.proyectoId ? Number(approval.proyectoId) : undefined,
+                actividadId: approval.actividadId ? Number(approval.actividadId) : undefined
+              }
+            : {})
+        })
       }),
-    onSuccess: async () => {
-      setFeedback("Solicitud publica actualizada.");
-      await queryClient.invalidateQueries({ queryKey: ["public-loan-requests"] });
+    onSuccess: async (request) => {
+      setFeedback(
+        request.prestamoConvertido
+          ? `Solicitud aprobada y convertida en prestamo ${request.prestamoConvertido.codigo}.`
+          : "Solicitud publica actualizada."
+      );
+      if (request.prestamoConvertido) {
+        setSelectedLoanId(request.prestamoConvertido.id);
+        setPublicApprovalRequest(null);
+        setPublicApprovalForm(null);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["public-loan-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["loans"] }),
+        queryClient.invalidateQueries({ queryKey: ["equipment"] })
+      ]);
     },
     onError: setErrorFeedback
   });
@@ -654,6 +804,19 @@ export function LoansPage() {
     returnMutation.mutate(loan);
   }
 
+  function handleDeliver(loan: Loan) {
+    setFeedback(null);
+    if (!deliveryPhotos.length) {
+      setFeedback("Adjunta al menos una foto de los equipos entregados.");
+      return;
+    }
+    if (!deliverySignatures.coordinador || !deliverySignatures.solicitante) {
+      setFeedback("Registra las firmas de coordinacion y solicitante.");
+      return;
+    }
+    deliverMutation.mutate(loan);
+  }
+
   async function handleReturnPhotos(files: FileList | null) {
     if (!files?.length) {
       return;
@@ -670,6 +833,94 @@ export function LoansPage() {
     } catch (error) {
       setErrorFeedback(error);
     }
+  }
+
+  async function handleDeliveryPhotos(files: FileList | null) {
+    if (!files?.length) {
+      return;
+    }
+    try {
+      const photos = await Promise.all(
+        Array.from(files).map(async (file) => ({
+          name: file.name,
+          mimeType: file.type,
+          dataUrl: await fileToDataUrl(file)
+        }))
+      );
+      setDeliveryPhotos((current) => [...current, ...photos].slice(0, 6));
+    } catch (error) {
+      setErrorFeedback(error);
+    }
+  }
+
+  function openPublicApproval(request: PublicLoanRequest) {
+    setFeedback(null);
+    setPublicApprovalRequest(request);
+    setPublicApprovalForm({
+      ...publicApprovalInitialState(request),
+      observacionesInternas:
+        publicRequestNotes[request.id] ?? request.observacionesInternas ?? ""
+    });
+  }
+
+  function updatePublicApprovalForm<K extends keyof PublicApprovalFormState>(
+    key: K,
+    value: PublicApprovalFormState[K]
+  ) {
+    setPublicApprovalForm((current) =>
+      current
+        ? {
+            ...current,
+            [key]: value,
+            ...(key === "equipoId" ? { equipoUnidadId: "", cantidadAprobada: "1" } : {}),
+            ...(key === "materiaId" ? { materiaProfesorId: "" } : {})
+          }
+        : current
+    );
+  }
+
+  function handleApprovePublicRequest() {
+    if (!publicApprovalRequest || !publicApprovalForm) {
+      return;
+    }
+    setFeedback(null);
+    if (!publicApprovalForm.equipoId) {
+      setFeedback("Selecciona el equipo que se entregara.");
+      return;
+    }
+    if (
+      approvalSelectedEquipment?.requiereSerial &&
+      !publicApprovalForm.equipoUnidadId
+    ) {
+      setFeedback("Selecciona la unidad del equipo serializado.");
+      return;
+    }
+    if (new Date(publicApprovalForm.fechaDevolucionEstimada) <= new Date(publicApprovalForm.fechaPrestamo)) {
+      setFeedback("La devolucion estimada debe ser posterior a la fecha de prestamo.");
+      return;
+    }
+    if (publicApprovalForm.tipoUso === "ACADEMICO" && !publicApprovalForm.materiaId) {
+      setFeedback("Selecciona la materia para aprobar el prestamo academico.");
+      return;
+    }
+
+    publicRequestMutation.mutate({
+      requestId: publicApprovalRequest.id,
+      estado: "CONVERTIDA",
+      observacionesInternas: publicApprovalForm.observacionesInternas || undefined,
+      approval: {
+        equipoId: publicApprovalForm.equipoId,
+        equipoUnidadId: publicApprovalForm.equipoUnidadId,
+        cantidadAprobada: publicApprovalForm.cantidadAprobada,
+        fechaPrestamo: publicApprovalForm.fechaPrestamo,
+        fechaDevolucionEstimada: publicApprovalForm.fechaDevolucionEstimada,
+        tipoUso: publicApprovalForm.tipoUso,
+        materiaId: publicApprovalForm.materiaId,
+        materiaProfesorId: publicApprovalForm.materiaProfesorId,
+        proyectoId: publicApprovalForm.proyectoId,
+        actividadId: publicApprovalForm.actividadId
+      }
+    });
   }
 
   function updatePublicRequestStatus(request: PublicLoanRequest, estado: EstadoSolicitudPublicaPrestamo) {
@@ -865,6 +1116,16 @@ export function LoansPage() {
                     <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
                       {request.descripcionActividad}
                     </p>
+                    {request.prestamoConvertido && (
+                      <button
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary"
+                        type="button"
+                        onClick={() => setSelectedLoanId(request.prestamoConvertido?.id ?? null)}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Prestamo {request.prestamoConvertido.codigo}
+                      </button>
+                    )}
                     <textarea
                       className="textarea-control mt-3 min-h-20 text-xs"
                       value={publicRequestNotes[request.id] ?? request.observacionesInternas ?? ""}
@@ -880,7 +1141,7 @@ export function LoansPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={pendingAction}
+                        disabled={pendingAction || request.estado === "CONVERTIDA"}
                         onClick={() => updatePublicRequestStatus(request, "EN_REVISION")}
                       >
                         <Check className="h-4 w-4" />
@@ -889,8 +1150,8 @@ export function LoansPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={pendingAction}
-                        onClick={() => updatePublicRequestStatus(request, "CONVERTIDA")}
+                        disabled={pendingAction || request.estado === "CONVERTIDA"}
+                        onClick={() => openPublicApproval(request)}
                       >
                         <MailIcon className="h-4 w-4" />
                         Aprobar
@@ -898,7 +1159,7 @@ export function LoansPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={pendingAction}
+                        disabled={pendingAction || request.estado === "CONVERTIDA"}
                         onClick={() => updatePublicRequestStatus(request, "RECHAZADA")}
                       >
                         <X className="h-4 w-4" />
@@ -1425,6 +1686,7 @@ export function LoansPage() {
                         className="mt-2 block w-full text-sm"
                         type="file"
                         accept="image/*"
+                        capture="environment"
                         multiple
                         onChange={(event) => void handleReturnPhotos(event.target.files)}
                       />
@@ -1505,15 +1767,72 @@ export function LoansPage() {
                 )}
 
                 {selectedLoan.estado === "APROBADO" && hasPermission("prestamos:entregar") && (
-                  <Button
-                    className="w-full"
-                    type="button"
-                    onClick={() => deliverMutation.mutate(selectedLoan.id)}
-                    disabled={pendingAction}
+                  <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Acta de entrega</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Toma fotos de los equipos y registra las firmas digitales para entregar.
+                      </p>
+                    </div>
+                    <label className="block text-sm font-medium">
+                      Fotos de los equipos entregados
+                      <span className="mt-2 flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-muted-foreground">
+                        <Camera className="h-4 w-4 text-primary" />
+                        Camara o galeria
+                      </span>
+                      <input
+                        className="sr-only"
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        multiple
+                        onChange={(event) => void handleDeliveryPhotos(event.target.files)}
+                      />
+                    </label>
+                    {deliveryPhotos.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {deliveryPhotos.map((photo, index) => (
+                          <div key={`${photo.name}-${index}`} className="overflow-hidden rounded-md border bg-white">
+                            <img className="h-20 w-full object-cover" src={photo.dataUrl} alt={photo.name} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid gap-3">
+                      <SignaturePad
+                        label="Firma coordinacion"
+                        value={deliverySignatures.coordinador}
+                        onChange={(value) =>
+                          setDeliverySignatures((current) => ({ ...current, coordinador: value }))
+                        }
+                      />
+                      <SignaturePad
+                        label="Firma solicitante"
+                        value={deliverySignatures.solicitante}
+                        onChange={(value) =>
+                          setDeliverySignatures((current) => ({ ...current, solicitante: value }))
+                        }
+                      />
+                    </div>
+                    <Button
+                      className="w-full"
+                      type="button"
+                      onClick={() => handleDeliver(selectedLoan)}
+                      disabled={pendingAction}
+                    >
+                      <PackageCheck className="h-4 w-4" />
+                      Registrar entrega y generar acta
+                    </Button>
+                  </div>
+                )}
+
+                {(lastDeliveryActLoanId === selectedLoan.id || selectedLoan.evidencias.length > 0) && (
+                  <a
+                    className="block rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm font-medium text-primary"
+                    href={`/loans/${selectedLoan.id}/acta-entrega`}
                   >
-                    <PackageCheck className="h-4 w-4" />
-                    Registrar entrega
-                  </Button>
+                    Visualizar acta de entrega {selectedLoan.codigo}
+                  </a>
                 )}
 
                 {canReturn(selectedLoan.estado) && hasPermission("devoluciones:registrar") && (
@@ -1532,6 +1851,206 @@ export function LoansPage() {
           )}
         </div>
       </section>
+
+      {publicApprovalRequest && publicApprovalForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-md border bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b p-4">
+              <div>
+                <h2 className="text-lg font-semibold">Aprobar solicitud publica</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {publicApprovalRequest.nombreCompleto} - {publicApprovalRequest.codigoSolicitud}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setPublicApprovalRequest(null);
+                  setPublicApprovalForm(null);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="space-y-4 p-4">
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <p className="font-medium">{publicApprovalRequest.codigoRecurso}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {publicApprovalRequest.descripcionActividad}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Fecha de prestamo">
+                  <input
+                    className="input-control"
+                    type="datetime-local"
+                    value={publicApprovalForm.fechaPrestamo}
+                    onChange={(event) => updatePublicApprovalForm("fechaPrestamo", event.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="Devolucion estimada">
+                  <input
+                    className="input-control"
+                    type="datetime-local"
+                    min={publicApprovalForm.fechaPrestamo}
+                    value={publicApprovalForm.fechaDevolucionEstimada}
+                    onChange={(event) =>
+                      updatePublicApprovalForm("fechaDevolucionEstimada", event.target.value)
+                    }
+                    required
+                  />
+                </Field>
+              </div>
+
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Duracion estimada:{" "}
+                <span className="font-semibold text-foreground">
+                  {calculateLoanDays(
+                    publicApprovalForm.fechaPrestamo,
+                    publicApprovalForm.fechaDevolucionEstimada
+                  )}{" "}
+                  dias
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Equipo real a prestar">
+                  <SearchableSelect
+                    options={equipmentOptions}
+                    value={publicApprovalForm.equipoId}
+                    onChange={(value) => updatePublicApprovalForm("equipoId", value)}
+                    placeholder="Seleccionar equipo"
+                    searchPlaceholder="Buscar por nombre, codigo o categoria"
+                    emptyLabel="Seleccionar"
+                    required
+                  />
+                </Field>
+                {approvalSelectedEquipment?.requiereSerial ? (
+                  <Field label="Unidad">
+                    <SearchableSelect
+                      options={approvalUnitOptions}
+                      value={publicApprovalForm.equipoUnidadId}
+                      onChange={(value) => updatePublicApprovalForm("equipoUnidadId", value)}
+                      placeholder="Seleccionar unidad"
+                      searchPlaceholder="Buscar por codigo o serial"
+                      emptyLabel="Seleccionar"
+                      required
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Cantidad aprobada">
+                    <input
+                      className="input-control"
+                      type="number"
+                      min="1"
+                      max={approvalSelectedEquipment?.cantidadDisponible}
+                      value={publicApprovalForm.cantidadAprobada}
+                      onChange={(event) =>
+                        updatePublicApprovalForm("cantidadAprobada", event.target.value)
+                      }
+                      required
+                    />
+                  </Field>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Uso">
+                  <SearchableSelect
+                    options={useTypeOptions}
+                    value={publicApprovalForm.tipoUso}
+                    onChange={(value) => updatePublicApprovalForm("tipoUso", value as TipoUso)}
+                    placeholder="Seleccionar uso"
+                    searchPlaceholder="Buscar uso"
+                    emptyLabel="Seleccionar"
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Materia">
+                  <SearchableSelect
+                    options={subjectOptions}
+                    value={publicApprovalForm.materiaId}
+                    onChange={(value) => updatePublicApprovalForm("materiaId", value)}
+                    placeholder="Seleccionar materia"
+                    searchPlaceholder="Buscar materia"
+                    emptyLabel="Sin materia"
+                    required={publicApprovalForm.tipoUso === "ACADEMICO"}
+                  />
+                </Field>
+                <Field label="Profesor / grupo">
+                  <SearchableSelect
+                    options={approvalSubjectProfessorOptions}
+                    value={publicApprovalForm.materiaProfesorId}
+                    onChange={(value) => updatePublicApprovalForm("materiaProfesorId", value)}
+                    placeholder="Seleccionar grupo"
+                    searchPlaceholder="Buscar profesor o grupo"
+                    emptyLabel="Sin grupo"
+                    disabled={!publicApprovalForm.materiaId}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Proyecto">
+                  <SearchableSelect
+                    options={projectOptions}
+                    value={publicApprovalForm.proyectoId}
+                    onChange={(value) => updatePublicApprovalForm("proyectoId", value)}
+                    placeholder="Seleccionar proyecto"
+                    searchPlaceholder="Buscar proyecto"
+                    emptyLabel="Sin proyecto"
+                  />
+                </Field>
+                <Field label="Actividad">
+                  <SearchableSelect
+                    options={activityOptions}
+                    value={publicApprovalForm.actividadId}
+                    onChange={(value) => updatePublicApprovalForm("actividadId", value)}
+                    placeholder="Seleccionar actividad"
+                    searchPlaceholder="Buscar actividad"
+                    emptyLabel="Sin actividad"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Observaciones internas">
+                <textarea
+                  className="textarea-control"
+                  value={publicApprovalForm.observacionesInternas}
+                  onChange={(event) =>
+                    updatePublicApprovalForm("observacionesInternas", event.target.value)
+                  }
+                />
+              </Field>
+            </div>
+            <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPublicApprovalRequest(null);
+                  setPublicApprovalForm(null);
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button type="button" disabled={pendingAction} onClick={handleApprovePublicRequest}>
+                {publicRequestMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-4 w-4" />
+                )}
+                Aprobar y crear prestamo
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

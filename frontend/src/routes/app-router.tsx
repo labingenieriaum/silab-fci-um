@@ -10,6 +10,7 @@ import {
 import { ProtectedRoute } from "@/features/auth/protected-route";
 import { CategoriesPage } from "@/pages/categories-page";
 import { DashboardPage } from "@/pages/dashboard-page";
+import { DeliveryActPage } from "@/pages/delivery-act-page";
 import { EquipmentPage } from "@/pages/equipment-page";
 import { FacultiesPage } from "@/pages/faculties-page";
 import { InventoryPage } from "@/pages/inventory-page";
@@ -74,6 +75,10 @@ export const router = createBrowserRouter([
           {
             path: "loans",
             element: <LoansPage />
+          },
+          {
+            path: "loans/:id/acta-entrega",
+            element: <DeliveryActPage />
           },
           {
             path: "returns",
