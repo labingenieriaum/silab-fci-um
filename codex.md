@@ -694,6 +694,28 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm run lint --workspace @silab/frontend`: correcto.
 - `npm run build --workspace @silab/frontend`: correcto.
 
+## Ajuste programas academicos y periodo de materias
+
+- Se agrego CRUD backend para `Programas`:
+  - `POST /programs`
+  - `PATCH /programs/:id`
+  - `DELETE /programs/:id`
+- Los programas quedan amarrados a facultades mediante `facultadId`.
+- No se permite eliminar programas con usuarios, materias, proyectos o actividades asociadas.
+- Se agrego la pagina `Programas` en el menu Academico y ruta `/programs`.
+- La pagina permite listar, buscar, crear, editar y eliminar programas.
+- En materias, el campo libre `Periodo` para profesores/grupos se cambio por selector:
+  - Diurno
+  - Nocturno
+  - Virtual
+
+## Validaciones ajuste programas academicos
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+
 ## Ajuste catalogo academico: materias, semilleros, proyectos y actividades
 
 - Se amplio el modelo academico para soportar materias con varios profesores y grupos.

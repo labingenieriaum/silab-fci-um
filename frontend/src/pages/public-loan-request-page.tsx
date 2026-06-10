@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
+import type { RolPersonaPrestamo } from "@/types/people";
 
 interface PublicLoanResource {
   id: number;
@@ -35,9 +37,25 @@ interface PublicLoanResource {
   };
 }
 
+interface PublicLoanProgram {
+  id: number;
+  codigo: string;
+  nombre: string;
+  facultad: {
+    sigla: string;
+    nombre: string;
+  };
+}
+
 interface PublicLoanRequestForm {
   nombreCompleto: string;
   correoInstitucional: string;
+  rolSolicitante: RolPersonaPrestamo;
+  identificacion: string;
+  programa: string;
+  semestre: string;
+  materia: string;
+  dependencia: string;
   equipoId: string;
   recursoSolicitado: string;
   fechaPrestamo: string;
@@ -56,12 +74,24 @@ const emptyResources: PublicLoanResource[] = [];
 const initialForm: PublicLoanRequestForm = {
   nombreCompleto: "",
   correoInstitucional: "",
+  rolSolicitante: "ESTUDIANTE",
+  identificacion: "",
+  programa: "",
+  semestre: "",
+  materia: "",
+  dependencia: "",
   equipoId: "",
   recursoSolicitado: "",
   fechaPrestamo: todayDateValue(),
   fechaDevolucionEstimada: todayDateValue(),
   descripcionActividad: ""
 };
+
+const applicantRoleOptions = [
+  { value: "ESTUDIANTE", label: "Estudiante", searchText: "estudiante" },
+  { value: "PROFESOR", label: "Profesor", searchText: "profesor docente" },
+  { value: "ADMINISTRATIVO", label: "Administrativo", searchText: "administrativo dependencia" }
+];
 
 function CircuitBackground() {
   return (
@@ -100,7 +130,19 @@ export function PublicLoanRequestPage() {
     queryFn: () => apiRequest<PublicLoanResource[]>("/public/loan-resources")
   });
 
+  const programsQuery = useQuery({
+    queryKey: ["public-loan-programs"],
+    queryFn: () => apiRequest<PublicLoanProgram[]>("/public/loan-programs")
+  });
+
   const resources = resourcesQuery.data ?? emptyResources;
+  const programs = programsQuery.data ?? [];
+  const programOptions = programs.map((program) => ({
+    value: program.nombre,
+    label: program.nombre,
+    description: `${program.codigo}${program.facultad ? ` - ${program.facultad.sigla}` : ""}`,
+    searchText: `${program.codigo} ${program.nombre} ${program.facultad?.nombre ?? ""} ${program.facultad?.sigla ?? ""}`
+  }));
   const selectedResource = resources.find((resource) => String(resource.id) === form.equipoId) ?? null;
   const filteredResources = useMemo(() => {
     const search = resourceSearch.trim().toLowerCase();
@@ -132,6 +174,15 @@ export function PublicLoanRequestPage() {
     setForm((current) => ({
       ...current,
       [key]: value,
+      ...(key === "rolSolicitante"
+        ? {
+            identificacion: "",
+            programa: "",
+            semestre: "",
+            materia: "",
+            dependencia: ""
+          }
+        : {}),
       ...(key === "fechaPrestamo" && current.fechaDevolucionEstimada < value
         ? { fechaDevolucionEstimada: value }
         : {})
@@ -172,6 +223,28 @@ export function PublicLoanRequestPage() {
       setFeedback("Selecciona un equipo o describe el recurso que necesitas.");
       return;
     }
+    if (form.rolSolicitante === "ESTUDIANTE") {
+      if (!form.programa || !form.semestre) {
+        setFeedback("Selecciona el programa/carrera y semestre del estudiante.");
+        return;
+      }
+    }
+    if (!form.identificacion.trim()) {
+      setFeedback(
+        form.rolSolicitante === "ESTUDIANTE"
+          ? "Para estudiantes debes escribir el codigo estudiantil."
+          : "Escribe la cedula del solicitante."
+      );
+      return;
+    }
+    if (form.rolSolicitante === "PROFESOR" && !form.materia.trim()) {
+      setFeedback("Escribe la materia asociada al prestamo.");
+      return;
+    }
+    if (form.rolSolicitante === "ADMINISTRATIVO" && !form.dependencia.trim()) {
+      setFeedback("Escribe la dependencia administrativa.");
+      return;
+    }
     if (loanDays < 1) {
       setFeedback("La fecha de devolucion debe ser igual o posterior a la fecha de prestamo.");
       return;
@@ -184,6 +257,12 @@ export function PublicLoanRequestPage() {
         body: JSON.stringify({
           nombreCompleto: form.nombreCompleto,
           correoInstitucional: form.correoInstitucional,
+          rolSolicitante: form.rolSolicitante,
+          identificacion: form.identificacion || undefined,
+          programa: form.rolSolicitante === "ESTUDIANTE" ? form.programa : undefined,
+          semestre: form.rolSolicitante === "ESTUDIANTE" && form.semestre ? Number(form.semestre) : undefined,
+          materia: form.rolSolicitante === "PROFESOR" ? form.materia : undefined,
+          dependencia: form.rolSolicitante === "ADMINISTRATIVO" ? form.dependencia : undefined,
           equipoId: form.equipoId ? Number(form.equipoId) : undefined,
           codigo: form.equipoId ? selectedResource?.codigoInterno : form.recursoSolicitado,
           fechaPrestamo: form.fechaPrestamo,
@@ -266,6 +345,97 @@ export function PublicLoanRequestPage() {
               />
             </PublicField>
           </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <PublicSelectField label="Tipo de solicitante">
+              <SearchableSelect
+                options={applicantRoleOptions}
+                value={form.rolSolicitante}
+                onChange={(value) => updateForm("rolSolicitante", value as RolPersonaPrestamo)}
+                placeholder="Seleccionar"
+                searchPlaceholder="Buscar tipo"
+                emptyLabel="Seleccionar"
+                required
+              />
+            </PublicSelectField>
+
+            <PublicField
+              label={form.rolSolicitante === "ESTUDIANTE" ? "Codigo estudiantil" : "Cedula"}
+              icon={<Hash className="h-4 w-4" />}
+            >
+              <input
+                className="input-control pl-10"
+                value={form.identificacion}
+                onChange={(event) => updateForm("identificacion", event.target.value)}
+                placeholder={form.rolSolicitante === "ESTUDIANTE" ? "Ej. 822020114422" : "Ej. 1058..."}
+                maxLength={40}
+                required
+              />
+            </PublicField>
+          </div>
+
+          {form.rolSolicitante === "ESTUDIANTE" && (
+            <div className="mt-3 rounded-md border border-[#dcefe3] bg-[#f4f8f1] p-4">
+              <p className="text-xs leading-5 text-[#41524b]">
+                Para estudiantes es obligatorio escribir el codigo estudiantil. No uses cedula ni tarjeta de identidad:
+                el sistema validara la solicitud por codigo estudiantil y puede rechazarla si no corresponde.
+              </p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-[1fr_140px]">
+                <PublicSelectField label="Programa / carrera">
+                  <SearchableSelect
+                    options={programOptions}
+                    value={form.programa}
+                    onChange={(value) => updateForm("programa", value)}
+                    placeholder="Seleccionar programa"
+                    searchPlaceholder="Buscar programa"
+                    emptyLabel="Seleccionar"
+                    required
+                  />
+                </PublicSelectField>
+                <PublicField label="Semestre" icon={<Hash className="h-4 w-4" />}>
+                  <input
+                    className="input-control pl-10"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={form.semestre}
+                    onChange={(event) => updateForm("semestre", event.target.value)}
+                    required
+                  />
+                </PublicField>
+              </div>
+            </div>
+          )}
+
+          {form.rolSolicitante === "PROFESOR" && (
+            <div className="mt-4">
+              <PublicField label="Materia" icon={<ClipboardList className="h-4 w-4" />}>
+                <input
+                  className="input-control pl-10"
+                  value={form.materia}
+                  onChange={(event) => updateForm("materia", event.target.value)}
+                  placeholder="Ej. Sistemas Operativos II"
+                  maxLength={180}
+                  required
+                />
+              </PublicField>
+            </div>
+          )}
+
+          {form.rolSolicitante === "ADMINISTRATIVO" && (
+            <div className="mt-4">
+              <PublicField label="Dependencia" icon={<ClipboardList className="h-4 w-4" />}>
+                <input
+                  className="input-control pl-10"
+                  value={form.dependencia}
+                  onChange={(event) => updateForm("dependencia", event.target.value)}
+                  placeholder="Ej. Laboratorios FCI, Decanatura, Soporte"
+                  maxLength={180}
+                  required
+                />
+              </PublicField>
+            </div>
+          )}
 
           <div className="mt-4">
             <label className="block text-sm font-medium">
@@ -456,6 +626,15 @@ function PublicField({
         </span>
         {children}
       </span>
+    </label>
+  );
+}
+
+function PublicSelectField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block text-sm font-medium">
+      {label}
+      <span className="mt-2 block">{children}</span>
     </label>
   );
 }

@@ -20,6 +20,11 @@ export class CreateActivityDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
+  responsablePersonaId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
   semilleroId?: number | null;
 
   @IsString()

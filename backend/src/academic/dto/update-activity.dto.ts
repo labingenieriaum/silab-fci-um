@@ -21,6 +21,11 @@ export class UpdateActivityDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
+  responsablePersonaId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
   semilleroId?: number | null;
 
   @IsString()

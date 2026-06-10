@@ -334,6 +334,26 @@ export class LoansService {
     });
   }
 
+  async findPublicLoanPrograms() {
+    return this.prisma.programa.findMany({
+      where: {
+        deletedAt: null
+      },
+      orderBy: [{ nombre: "asc" }, { codigo: "asc" }],
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        facultad: {
+          select: {
+            sigla: true,
+            nombre: true
+          }
+        }
+      }
+    });
+  }
+
   async createPublicLoanRequest(dto: CreatePublicLoanRequestDto) {
     const loanDate = parseRequestedDate(dto.fechaPrestamo);
     const returnDate = parseRequestedDate(dto.fechaDevolucionEstimada);
@@ -348,12 +368,19 @@ export class LoansService {
 
     const days = differenceInLoanDays(loanDate, returnDate);
     const requestedResource = await this.resolvePublicRequestedResource(dto);
+    const applicant = await normalizePublicApplicantDetails(this.prisma, dto);
     const request = await this.prisma.solicitudPublicaPrestamo.create({
       data: {
         codigoSolicitud: createPublicRequestCode(),
         equipoId: requestedResource.equipoId,
         nombreCompleto: cleanRequiredText(dto.nombreCompleto),
         correoInstitucional: dto.correoInstitucional.trim().toLowerCase(),
+        rolSolicitante: applicant.rolSolicitante,
+        identificacion: applicant.identificacion,
+        programa: applicant.programa,
+        semestre: applicant.semestre,
+        materia: applicant.materia,
+        dependencia: applicant.dependencia,
         codigoRecurso: requestedResource.label,
         fechaPrestamo: loanDate,
         fechaDevolucionEstimada: returnDate,
@@ -367,6 +394,12 @@ export class LoansService {
         prestamoConvertidoId: true,
         nombreCompleto: true,
         correoInstitucional: true,
+        rolSolicitante: true,
+        identificacion: true,
+        programa: true,
+        semestre: true,
+        materia: true,
+        dependencia: true,
         codigoRecurso: true,
         fechaPrestamo: true,
         fechaDevolucionEstimada: true,
@@ -438,6 +471,12 @@ export class LoansService {
         equipoId: true,
         nombreCompleto: true,
         correoInstitucional: true,
+        rolSolicitante: true,
+        identificacion: true,
+        programa: true,
+        semestre: true,
+        materia: true,
+        dependencia: true,
         codigoRecurso: true,
         fechaPrestamo: true,
         fechaDevolucionEstimada: true,
@@ -1690,6 +1729,30 @@ export class LoansService {
       : defaultEmailTemplates;
   }
 
+  private async trySendPublicApprovalEmail(
+    request: { nombreCompleto: string; codigoSolicitud: string; correoInstitucional: string },
+    note: string | null
+  ) {
+    try {
+      const templates = await this.getEmailTemplates();
+      const template = templates.publicLoanApproved ?? defaultEmailTemplates.publicLoanApproved;
+      const values = {
+        name: request.nombreCompleto,
+        requestCode: request.codigoSolicitud,
+        loanCode: "",
+        returnId: "",
+        extraMessage: note ?? ""
+      };
+      await this.mailService.sendMail({
+        to: request.correoInstitucional,
+        subject: renderTemplate(template.subject, values),
+        html: renderTemplate(template.body, values)
+      });
+    } catch {
+      // La aprobacion no debe bloquearse si SMTP aun no esta autorizado/configurado por TI.
+    }
+  }
+
   private async resolveLoanRequester(user: JwtUser, dto: CreateLoanDto) {
     if (dto.personaSolicitanteId) {
       const person = await this.prisma.personaPrestamo.findFirst({
@@ -1727,6 +1790,7 @@ export class LoansService {
       if (rol !== RolPersonaPrestamo.ESTUDIANTE && dto.personaSemestre) {
         throw new BadRequestException("El semestre solo aplica para estudiantes.");
       }
+      const affiliation = await normalizeLoanPersonAffiliation(this.prisma, rol, dto.personaCarrera);
 
       const person = await this.prisma.personaPrestamo.upsert({
         where: { codigo },
@@ -1734,7 +1798,7 @@ export class LoansService {
           codigo,
           nombre,
           correoInstitucional: email,
-          carrera: cleanNullableText(dto.personaCarrera),
+          carrera: affiliation,
           semestre: rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.personaSemestre ?? null) : null,
           rol,
           activo: true
@@ -1742,7 +1806,7 @@ export class LoansService {
         update: {
           nombre,
           correoInstitucional: email,
-          carrera: cleanNullableText(dto.personaCarrera),
+          carrera: affiliation,
           semestre: rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.personaSemestre ?? null) : null,
           rol,
           activo: true,
@@ -1838,7 +1902,10 @@ function cleanRequiredText(value: string) {
 }
 
 function parseRequestedDate(value: string) {
-  const date = new Date(value);
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new BadRequestException("Fecha invalida.");
   }
@@ -1866,6 +1933,136 @@ function createPublicRequestCode() {
 
 function renderTemplate(template: string, values: Record<string, string>) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key] ?? "");
+}
+
+async function normalizePublicApplicantDetails(prisma: PrismaService, dto: CreatePublicLoanRequestDto) {
+  const role = dto.rolSolicitante;
+  const identificacion = cleanNullableText(dto.identificacion);
+  if (!identificacion) {
+    throw new BadRequestException(
+      role === RolPersonaPrestamo.ESTUDIANTE
+        ? "Para estudiantes el codigo estudiantil es obligatorio."
+        : "La cedula del solicitante es obligatoria."
+    );
+  }
+
+  if (role === RolPersonaPrestamo.ESTUDIANTE) {
+    if (!dto.semestre) {
+      throw new BadRequestException("Selecciona el semestre del estudiante.");
+    }
+    const program = await findProgramByNameOrCode(prisma, dto.programa);
+    if (!program) {
+      throw new BadRequestException("Selecciona una carrera/programa existente.");
+    }
+    return {
+      rolSolicitante: role,
+      identificacion,
+      programa: program.nombre,
+      semestre: dto.semestre,
+      materia: null,
+      dependencia: null
+    };
+  }
+
+  if (role === RolPersonaPrestamo.PROFESOR) {
+    const materia = cleanNullableText(dto.materia);
+    if (!materia) {
+      throw new BadRequestException("La materia es obligatoria para profesores.");
+    }
+    return {
+      rolSolicitante: role,
+      identificacion,
+      programa: null,
+      semestre: null,
+      materia,
+      dependencia: null
+    };
+  }
+
+  const dependencia = cleanNullableText(dto.dependencia);
+  if (!dependencia) {
+    throw new BadRequestException("La dependencia es obligatoria para administrativos.");
+  }
+  return {
+    rolSolicitante: role,
+    identificacion,
+    programa: null,
+    semestre: null,
+    materia: null,
+    dependencia
+  };
+}
+
+async function findProgramByNameOrCode(prisma: PrismaService, value?: string | null) {
+  const cleaned = cleanNullableText(value);
+  if (!cleaned) return null;
+  const programs = await prisma.programa.findMany({
+    where: { deletedAt: null },
+    select: { nombre: true, codigo: true }
+  });
+  const normalized = normalizeCatalogText(cleaned);
+  return (
+    programs.find(
+      (item) => normalizeCatalogText(item.nombre) === normalized || normalizeCatalogText(item.codigo) === normalized
+    ) ?? null
+  );
+}
+
+async function normalizeLoanPersonAffiliation(
+  prisma: PrismaService,
+  rol: RolPersonaPrestamo,
+  value?: string | null
+) {
+  const cleaned = cleanNullableText(value);
+  if (!cleaned) {
+    throw new BadRequestException(loanPersonAffiliationRequiredMessage(rol));
+  }
+
+  if (rol === RolPersonaPrestamo.ESTUDIANTE) {
+    const programs = await prisma.programa.findMany({
+      where: { deletedAt: null },
+      select: { nombre: true, codigo: true }
+    });
+    const normalized = normalizeCatalogText(cleaned);
+    const program = programs.find(
+      (item) => normalizeCatalogText(item.nombre) === normalized || normalizeCatalogText(item.codigo) === normalized
+    );
+    if (!program) {
+      throw new BadRequestException("La carrera debe corresponder a un programa academico existente.");
+    }
+    return program.nombre;
+  }
+
+  if (rol === RolPersonaPrestamo.PROFESOR) {
+    const faculties = await prisma.facultad.findMany({
+      where: { deletedAt: null },
+      select: { nombre: true, sigla: true }
+    });
+    const normalized = normalizeCatalogText(cleaned);
+    const faculty = faculties.find(
+      (item) => normalizeCatalogText(item.nombre) === normalized || normalizeCatalogText(item.sigla) === normalized
+    );
+    if (!faculty) {
+      throw new BadRequestException("La facultad del profesor debe existir en el catalogo de facultades.");
+    }
+    return faculty.nombre;
+  }
+
+  return cleaned;
+}
+
+function loanPersonAffiliationRequiredMessage(rol: RolPersonaPrestamo) {
+  if (rol === RolPersonaPrestamo.ESTUDIANTE) return "Selecciona el programa academico del estudiante.";
+  if (rol === RolPersonaPrestamo.PROFESOR) return "Selecciona la facultad del profesor.";
+  return "La dependencia del administrativo es obligatoria.";
+}
+
+function normalizeCatalogText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function renderReturnActSummary(act: Awaited<ReturnType<LoansService["findReturnAct"]>>) {

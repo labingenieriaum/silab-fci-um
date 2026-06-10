@@ -12,6 +12,11 @@ export class UpdateSeedbedDto {
   @IsOptional()
   coordinadorId?: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  coordinadorPersonaId?: number | null;
+
   @IsString()
   @MinLength(2)
   @MaxLength(40)

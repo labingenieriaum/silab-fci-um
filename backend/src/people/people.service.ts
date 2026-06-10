@@ -85,7 +85,7 @@ export class PeopleService {
   }
 
   async create(dto: CreatePersonDto) {
-    const data = normalizePersonDto(dto);
+    const data = await this.normalizePersonDto(dto, { strictAffiliation: true });
     await this.ensureUniqueCode(data.codigo);
     return this.prisma.personaPrestamo.create({
       data,
@@ -108,8 +108,8 @@ export class PeopleService {
   }
 
   async update(id: number, dto: UpdatePersonDto) {
-    await this.findOne(id);
-    const data = normalizePersonUpdateDto(dto);
+    const current = await this.findOne(id);
+    const data = await this.normalizePersonUpdateDto(dto, current);
     if (data.codigo) {
       await this.ensureUniqueCode(data.codigo, id);
     }
@@ -146,7 +146,9 @@ export class PeopleService {
   }
 
   async bulkUpsert(dto: BulkUpsertPeopleDto) {
-    const normalized = dto.personas.map((person) => normalizePersonDto(person));
+    const normalized = await Promise.all(
+      dto.personas.map((person) => this.normalizePersonDto(person, { strictAffiliation: false }))
+    );
     const codes = new Set<string>();
     for (const person of normalized) {
       if (codes.has(person.codigo)) {
@@ -188,6 +190,7 @@ export class PeopleService {
     return {
       created,
       updated,
+      afiliacionesNulas: normalized.filter((person) => !person.carrera).length,
       total: result.length,
       data: result
     };
@@ -208,51 +211,112 @@ export class PeopleService {
       throw new ConflictException("El codigo ya esta registrado.");
     }
   }
-}
 
-function normalizePersonDto(dto: CreatePersonDto) {
-  const codigo = cleanRequiredText(dto.codigo);
-  const nombre = cleanRequiredText(dto.nombre);
-  validateStudentFields(dto.rol, dto.semestre);
-  return {
-    codigo,
-    nombre,
-    correoInstitucional: cleanNullableText(dto.correoInstitucional)?.toLowerCase() ?? null,
-    carrera: cleanNullableText(dto.carrera),
-    semestre: dto.rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.semestre ?? null) : null,
-    rol: dto.rol,
-    activo: dto.activo ?? true
-  };
-}
-
-function normalizePersonUpdateDto(dto: UpdatePersonDto) {
-  if (dto.rol) {
+  private async normalizePersonDto(dto: CreatePersonDto, options: { strictAffiliation: boolean }) {
+    const codigo = cleanRequiredText(dto.codigo);
+    const nombre = cleanRequiredText(dto.nombre);
     validateStudentFields(dto.rol, dto.semestre);
+    return {
+      codigo,
+      nombre,
+      correoInstitucional: cleanNullableText(dto.correoInstitucional)?.toLowerCase() ?? null,
+      carrera: await this.normalizeAffiliation(dto.rol, dto.carrera, options.strictAffiliation),
+      semestre: dto.rol === RolPersonaPrestamo.ESTUDIANTE ? (dto.semestre ?? null) : null,
+      rol: dto.rol,
+      activo: dto.activo ?? true
+    };
   }
-  const semester =
-    dto.rol && dto.rol !== RolPersonaPrestamo.ESTUDIANTE
-      ? null
-      : dto.semestre === undefined
-        ? undefined
-        : dto.semestre;
-  return {
-    codigo: dto.codigo ? cleanRequiredText(dto.codigo) : undefined,
-    nombre: dto.nombre ? cleanRequiredText(dto.nombre) : undefined,
-    correoInstitucional:
-      dto.correoInstitucional === undefined
-        ? undefined
-        : cleanNullableText(dto.correoInstitucional)?.toLowerCase() ?? null,
-    carrera: dto.carrera === undefined ? undefined : cleanNullableText(dto.carrera),
-    semestre: semester,
-    rol: dto.rol,
-    activo: dto.activo
-  };
+
+  private async normalizePersonUpdateDto(dto: UpdatePersonDto, current: { rol: RolPersonaPrestamo; carrera: string | null }) {
+    const role = dto.rol ?? current.rol;
+    validateStudentFields(role, dto.semestre);
+    const semester =
+      role !== RolPersonaPrestamo.ESTUDIANTE
+        ? null
+        : dto.semestre === undefined
+          ? undefined
+          : dto.semestre;
+    const shouldNormalizeAffiliation = dto.carrera !== undefined || dto.rol !== undefined;
+
+    return {
+      codigo: dto.codigo ? cleanRequiredText(dto.codigo) : undefined,
+      nombre: dto.nombre ? cleanRequiredText(dto.nombre) : undefined,
+      correoInstitucional:
+        dto.correoInstitucional === undefined
+          ? undefined
+          : cleanNullableText(dto.correoInstitucional)?.toLowerCase() ?? null,
+      carrera: shouldNormalizeAffiliation
+        ? await this.normalizeAffiliation(role, dto.carrera === undefined ? current.carrera : dto.carrera, true)
+        : undefined,
+      semestre: semester,
+      rol: dto.rol,
+      activo: dto.activo
+    };
+  }
+
+  private async normalizeAffiliation(rol: RolPersonaPrestamo, value: string | null | undefined, strict: boolean) {
+    const cleaned = cleanNullableText(value);
+    if (!cleaned) {
+      if (strict) {
+        throw new BadRequestException(affiliationRequiredMessage(rol));
+      }
+      return null;
+    }
+
+    if (rol === RolPersonaPrestamo.ESTUDIANTE) {
+      const programs = await this.prisma.programa.findMany({
+        where: {
+          deletedAt: null
+        },
+        select: { nombre: true, codigo: true }
+      });
+      const normalized = normalizeCatalogText(cleaned);
+      const program = programs.find(
+        (item) => normalizeCatalogText(item.nombre) === normalized || normalizeCatalogText(item.codigo) === normalized
+      );
+      if (!program) {
+        if (!strict) {
+          return null;
+        }
+        throw new BadRequestException("La carrera debe corresponder a un programa academico existente.");
+      }
+      return program.nombre;
+    }
+
+    if (rol === RolPersonaPrestamo.PROFESOR) {
+      const faculties = await this.prisma.facultad.findMany({
+        where: {
+          deletedAt: null
+        },
+        select: { nombre: true, sigla: true }
+      });
+      const normalized = normalizeCatalogText(cleaned);
+      const faculty = faculties.find(
+        (item) => normalizeCatalogText(item.nombre) === normalized || normalizeCatalogText(item.sigla) === normalized
+      );
+      if (!faculty) {
+        if (!strict) {
+          return null;
+        }
+        throw new BadRequestException("La facultad del profesor debe existir en el catalogo de facultades.");
+      }
+      return faculty.nombre;
+    }
+
+    return cleaned;
+  }
 }
 
 function validateStudentFields(rol: RolPersonaPrestamo, semestre?: number | null) {
   if (rol !== RolPersonaPrestamo.ESTUDIANTE && semestre) {
     throw new BadRequestException("El semestre solo aplica para estudiantes.");
   }
+}
+
+function affiliationRequiredMessage(rol: RolPersonaPrestamo) {
+  if (rol === RolPersonaPrestamo.ESTUDIANTE) return "Selecciona el programa academico del estudiante.";
+  if (rol === RolPersonaPrestamo.PROFESOR) return "Selecciona la facultad del profesor.";
+  return "La dependencia del administrativo es obligatoria.";
 }
 
 function cleanRequiredText(value: string) {
@@ -262,4 +326,12 @@ function cleanRequiredText(value: string) {
 function cleanNullableText(value?: string | null) {
   const cleaned = value?.replace(/\s+/g, " ").trim();
   return cleaned ? cleaned : null;
+}
+
+function normalizeCatalogText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }

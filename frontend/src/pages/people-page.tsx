@@ -19,6 +19,7 @@ import { Field } from "@/components/ui/field";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { apiRequest } from "@/lib/api";
 import { formatEnum } from "@/lib/format";
+import type { Facultad, Programa } from "@/types/catalogs";
 import type {
   LoanPerson,
   PaginatedPeople,
@@ -84,6 +85,16 @@ export function PeoplePage() {
     queryFn: () => apiRequest<PaginatedPeople>(`/people?${queryString}`)
   });
 
+  const programsQuery = useQuery({
+    queryKey: ["programs"],
+    queryFn: () => apiRequest<Programa[]>("/programs")
+  });
+
+  const facultiesQuery = useQuery({
+    queryKey: ["faculties"],
+    queryFn: () => apiRequest<Facultad[]>("/faculties")
+  });
+
   const saveMutation = useMutation({
     mutationFn: ({ id, payload }: { id?: number; payload: PersonPayload }) =>
       apiRequest<LoanPerson>(id ? `/people/${id}` : "/people", {
@@ -116,13 +127,17 @@ export function PeoplePage() {
 
   const bulkMutation = useMutation({
     mutationFn: (personas: PersonPayload[]) =>
-      apiRequest<{ created: number; updated: number; total: number }>("/people/bulk", {
+      apiRequest<{ created: number; updated: number; total: number; afiliacionesNulas: number }>("/people/bulk", {
         method: "POST",
         body: JSON.stringify({ personas })
       }),
     onSuccess: async (result) => {
       setFeedback(
-        `CSV procesado: ${result.created} creadas, ${result.updated} actualizadas, ${result.total} filas.`
+        `CSV procesado: ${result.created} creadas, ${result.updated} actualizadas, ${result.total} filas.${
+          result.afiliacionesNulas
+            ? ` ${result.afiliacionesNulas} quedaron sin programa, facultad o dependencia y se guardaron en null.`
+            : ""
+        }`
       );
       await queryClient.invalidateQueries({ queryKey: ["people"] });
     },
@@ -130,6 +145,8 @@ export function PeoplePage() {
   });
 
   const people = peopleQuery.data?.data ?? [];
+  const programs = programsQuery.data ?? [];
+  const faculties = facultiesQuery.data ?? [];
   const summary = peopleQuery.data?.summary ?? {
     estudiantes: 0,
     profesores: 0,
@@ -144,7 +161,7 @@ export function PeoplePage() {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "rol" && value !== "ESTUDIANTE" ? { semestre: "" } : {})
+      ...(key === "rol" ? { carrera: "", semestre: value === "ESTUDIANTE" ? current.semestre : "" } : {})
     }));
   }
 
@@ -181,6 +198,16 @@ export function PeoplePage() {
       setFeedback("El semestre debe ser mayor a cero.");
       return;
     }
+    if (!form.carrera.trim()) {
+      setFeedback(
+        form.rol === "ADMINISTRATIVO"
+          ? "La dependencia es obligatoria."
+          : form.rol === "PROFESOR"
+            ? "Selecciona la facultad del profesor."
+            : "Selecciona el programa del estudiante."
+      );
+      return;
+    }
     saveMutation.mutate({
       id: editingPerson?.id,
       payload: formToPayload(form)
@@ -208,8 +235,8 @@ export function PeoplePage() {
     const content = [
       "codigo;nombre;correo;carrera;semestre;rol",
       "123456;Nombre Completo;correo@umanizales.edu.co;Ingenieria de Sistemas;3;estudiante",
-      "DOC001;Nombre Docente;docente@umanizales.edu.co;;;profesor",
-      "ADM001;Nombre Administrativo;admin@umanizales.edu.co;;;administrativo"
+      "DOC001;Nombre Docente;docente@umanizales.edu.co;Facultad de Ciencias e Ingenieria;;profesor",
+      "ADM001;Nombre Administrativo;admin@umanizales.edu.co;Laboratorios FCI;;administrativo"
     ].join("\n");
     const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -223,6 +250,18 @@ export function PeoplePage() {
   }
 
   const pending = saveMutation.isPending || deleteMutation.isPending || bulkMutation.isPending;
+  const programOptions = programs.map((program) => ({
+    value: program.nombre,
+    label: program.nombre,
+    description: `${program.codigo}${program.facultad ? ` - ${program.facultad.sigla}` : ""}`,
+    searchText: `${program.codigo} ${program.nombre} ${program.facultad?.nombre ?? ""} ${program.facultad?.sigla ?? ""}`
+  }));
+  const facultyOptions = faculties.map((faculty) => ({
+    value: faculty.nombre,
+    label: `${faculty.sigla} - ${faculty.nombre}`,
+    description: "Facultad",
+    searchText: `${faculty.sigla} ${faculty.nombre}`
+  }));
 
   return (
     <div className="space-y-6">
@@ -289,7 +328,7 @@ export function PeoplePage() {
               className="input-control"
               value={careerFilter}
               onChange={(event) => setCareerFilter(event.target.value)}
-              placeholder="Carrera"
+              placeholder="Programa, facultad o dependencia"
             />
             <input
               className="input-control"
@@ -322,7 +361,7 @@ export function PeoplePage() {
                   <th className="px-4 py-3 text-left font-semibold">Persona</th>
                   <th className="px-4 py-3 text-left font-semibold">Codigo</th>
                   <th className="px-4 py-3 text-left font-semibold">Rol</th>
-                  <th className="px-4 py-3 text-left font-semibold">Carrera</th>
+                  <th className="px-4 py-3 text-left font-semibold">Vinculacion</th>
                   <th className="px-4 py-3 text-left font-semibold">Semestre</th>
                   <th className="px-4 py-3 text-left font-semibold">Estado</th>
                   <th className="px-4 py-3 text-right font-semibold">Acciones</th>
@@ -423,12 +462,26 @@ export function PeoplePage() {
                     onChange={(event) => updateForm("correoInstitucional", event.target.value)}
                   />
                 </Field>
-                <Field label="Carrera">
-                  <input
-                    className="input-control"
-                    value={form.carrera}
-                    onChange={(event) => updateForm("carrera", event.target.value)}
-                  />
+                <Field label={personAffiliationLabel(form.rol)}>
+                  {form.rol === "ADMINISTRATIVO" ? (
+                    <input
+                      className="input-control"
+                      value={form.carrera}
+                      onChange={(event) => updateForm("carrera", event.target.value)}
+                      placeholder="Ej. Laboratorios FCI, Decanatura, Soporte"
+                      required
+                    />
+                  ) : (
+                    <SearchableSelect
+                      options={form.rol === "PROFESOR" ? facultyOptions : programOptions}
+                      value={form.carrera}
+                      onChange={(value) => updateForm("carrera", value)}
+                      placeholder={form.rol === "PROFESOR" ? "Seleccionar facultad" : "Seleccionar programa"}
+                      searchPlaceholder={form.rol === "PROFESOR" ? "Buscar facultad" : "Buscar programa"}
+                      emptyLabel="Seleccionar"
+                      required
+                    />
+                  )}
                 </Field>
                 <Field label="Semestre">
                   <input
@@ -491,6 +544,12 @@ function formToPayload(form: PersonFormState): PersonPayload {
     rol: form.rol,
     activo: form.activo
   };
+}
+
+function personAffiliationLabel(role: RolPersonaPrestamo) {
+  if (role === "PROFESOR") return "Facultad";
+  if (role === "ADMINISTRATIVO") return "Dependencia";
+  return "Programa / carrera";
 }
 
 function parsePeopleCsv(content: string): PersonPayload[] {
