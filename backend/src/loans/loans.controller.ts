@@ -62,6 +62,11 @@ export class LoansController {
     return this.loansService.findLoanById(user, id);
   }
 
+  @Get("loans/:id/delivery-act")
+  findLoanDeliveryAct(@CurrentUser() user: JwtUser, @Param("id", ParseIntPipe) id: number) {
+    return this.loansService.findLoanDeliveryAct(user, id);
+  }
+
   @Patch("loans/:id/approve")
   @Permissions("prestamos:aprobar")
   approveLoan(

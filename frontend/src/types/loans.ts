@@ -28,6 +28,8 @@ export type TipoUso =
   | "PROYECTO"
   | "OTRO";
 
+export type TipoEvidenciaPrestamo = "FOTO" | "FIRMA_COORDINADOR" | "FIRMA_SOLICITANTE";
+
 export interface LoanDetail {
   id: number;
   prestamoId: number;
@@ -78,6 +80,17 @@ export interface LoanReturn {
     estadoDevolucion: EstadoCondicionEquipo;
     observaciones: string | null;
   }[];
+}
+
+export interface LoanEvidence {
+  id: number;
+  prestamoId: number;
+  tipo: TipoEvidenciaPrestamo;
+  nombreArchivo: string | null;
+  mimeType: string;
+  contenidoBase64: string;
+  firmanteNombre: string | null;
+  createdAt: string;
 }
 
 export interface Loan {
@@ -156,6 +169,7 @@ export interface Loan {
   } | null;
   detalles: LoanDetail[];
   devoluciones: LoanReturn[];
+  evidencias: LoanEvidence[];
 }
 
 export type PaginatedLoans = PaginatedResponse<Loan>;

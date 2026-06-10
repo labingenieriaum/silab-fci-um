@@ -758,3 +758,57 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm.cmd run lint --workspace @silab/backend`: correcto.
 - `npm.cmd run lint --workspace @silab/frontend`: correcto.
 - `npm.cmd run dev:backend`: compila con 0 errores y Nest inicia correctamente; la ejecucion se corto por timeout despues de confirmar el arranque.
+
+## Ajuste solicitudes publicas, conversion a prestamo y acta de entrega
+
+- Se ajusto el flujo de solicitudes publicas:
+  - Al aprobar ya no queda solo como `CONVERTIDA`.
+  - Ahora se abre un modal de aprobacion antes de convertir.
+  - En el modal se pueden corregir fecha de prestamo, devolucion estimada, equipo real, unidad serializada, cantidad, tipo de uso y contexto academico.
+  - Al confirmar, el backend crea un `Prestamo` real en estado `APROBADO`.
+  - La solicitud publica queda enlazada con `prestamoConvertidoId`.
+  - La lista de `Solicitudes recientes` se actualiza con el prestamo creado.
+- Se agrego entidad `PrestamoEvidencia` para evidencias del acta de entrega.
+- Se agrego enum `TipoEvidenciaPrestamo`:
+  - `FOTO`
+  - `FIRMA_COORDINADOR`
+  - `FIRMA_SOLICITANTE`
+- La entrega de un prestamo aprobado ahora exige:
+  - Al menos una foto del equipo entregado.
+  - Firma digital de coordinacion o usuario del sistema que entrega.
+  - Firma digital del solicitante.
+- El frontend permite capturar fotos con entrada de camara/galeria en celular usando `capture="environment"`.
+- Se reutilizo el componente de firma digital sobre canvas para capturar firma con mouse, lapiz o dedo.
+- Se agrego endpoint:
+  - `GET /api/v1/loans/:id/delivery-act`
+- Se agrego pagina frontend:
+  - `/loans/:id/acta-entrega`
+- La pagina de acta de entrega permite:
+  - Ver datos del prestamo.
+  - Ver equipos entregados.
+  - Ver fotos capturadas.
+  - Ver firmas digitales.
+  - Imprimir desde navegador.
+  - Descargar PDF desde el endpoint existente de acta de prestamo.
+- El PDF de acta de prestamo ahora reconoce evidencias registradas y lista fotos/firmantes en la seccion de firmas.
+- Se alineo el schema local con dos migraciones que ya estaban aplicadas en la base remota pero faltaban en el repositorio local:
+  - `20260609194000_add_people_to_academic_responsibles`
+  - `20260610102000_add_public_request_applicant_details`
+- Se agrego y aplico la migracion:
+  - `20260610103000_add_delivery_evidence_and_public_request_conversion`
+
+## Validaciones ajuste acta de entrega
+
+- `npm.cmd run prisma:validate`: correcto.
+- `npm.cmd run prisma:format`: correcto.
+- `npm.cmd run prisma:generate`: correcto.
+- `npx.cmd prisma db execute --config D:\silab\backend\prisma.config.ts --stdin`: correcto, migracion SQL nueva aplicada sin resetear datos.
+- `npx.cmd prisma migrate resolve --config D:\silab\backend\prisma.config.ts --applied 20260610103000_add_delivery_evidence_and_public_request_conversion`: correcto.
+- `npx.cmd prisma migrate status --config D:\silab\backend\prisma.config.ts`: correcto, base al dia con 13 migraciones.
+- `npm.cmd run build --workspace @silab/backend`: correcto.
+- `npm.cmd run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm.cmd run lint --workspace @silab/backend`: correcto.
+- `npm.cmd run lint --workspace @silab/frontend`: correcto.
+- `npm.cmd run dev:backend`: compila con 0 errores y carga rutas nuevas; no tomo el puerto porque ya habia un backend activo en `:3000`.
+- `GET http://localhost:3000/api/v1/health`: correcto.
+- Navegador integrado en `http://localhost:5173/loans`: correcto, sin errores de consola.
