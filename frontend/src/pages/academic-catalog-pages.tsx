@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BookOpen,
+  Building2,
   ClipboardCheck,
   FlaskConical,
   Loader2,
@@ -33,6 +34,7 @@ import type {
   TipoProyecto
 } from "@/types/academic";
 import type { Facultad, Programa } from "@/types/catalogs";
+import type { LoanPerson } from "@/types/people";
 
 interface SubjectProfessorForm {
   profesorId: string;
@@ -51,14 +53,22 @@ interface SubjectFormState {
 interface SeedbedFormState {
   facultadId: string;
   coordinadorId: string;
+  coordinadorPersonaId: string;
   codigo: string;
   nombre: string;
   descripcion: string;
 }
 
+interface ProgramFormState {
+  facultadId: string;
+  codigo: string;
+  nombre: string;
+}
+
 interface ProjectFormState {
   programaId: string;
   responsableId: string;
+  responsablePersonaId: string;
   semilleroId: string;
   nombre: string;
   tipo: TipoProyecto;
@@ -69,6 +79,7 @@ interface ActivityFormState {
   facultadId: string;
   programaId: string;
   responsableId: string;
+  responsablePersonaId: string;
   semilleroId: string;
   nombre: string;
   tipo: TipoActividad;
@@ -86,14 +97,22 @@ const initialSubjectForm: SubjectFormState = {
 const initialSeedbedForm: SeedbedFormState = {
   facultadId: "",
   coordinadorId: "",
+  coordinadorPersonaId: "",
   codigo: "",
   nombre: "",
   descripcion: ""
 };
 
+const initialProgramForm: ProgramFormState = {
+  facultadId: "",
+  codigo: "",
+  nombre: ""
+};
+
 const initialProjectForm: ProjectFormState = {
   programaId: "",
   responsableId: "",
+  responsablePersonaId: "",
   semilleroId: "",
   nombre: "",
   tipo: "INVESTIGACION",
@@ -104,6 +123,7 @@ const initialActivityForm: ActivityFormState = {
   facultadId: "",
   programaId: "",
   responsableId: "",
+  responsablePersonaId: "",
   semilleroId: "",
   nombre: "",
   tipo: "PRACTICA",
@@ -130,6 +150,12 @@ const activityTypeOptions = [
   "OTRO"
 ].map((value) => ({ value, label: formatEnum(value), searchText: value }));
 
+const periodOptions = [
+  { value: "DIURNO", label: "Diurno", searchText: "diurno dia" },
+  { value: "NOCTURNO", label: "Nocturno", searchText: "nocturno noche" },
+  { value: "VIRTUAL", label: "Virtual", searchText: "virtual remoto" }
+];
+
 function useAcademicLookups() {
   const facultiesQuery = useQuery({
     queryKey: ["faculties"],
@@ -146,6 +172,11 @@ function useAcademicLookups() {
     queryFn: () => apiRequest<AcademicUser[]>("/academic-users")
   });
 
+  const peopleQuery = useQuery({
+    queryKey: ["academic-people"],
+    queryFn: () => apiRequest<LoanPerson[]>("/academic-people")
+  });
+
   const seedbedsQuery = useQuery({
     queryKey: ["seedbeds", "lookup"],
     queryFn: () => apiRequest<PaginatedSeedbeds>("/seedbeds?page=1&pageSize=100")
@@ -154,13 +185,30 @@ function useAcademicLookups() {
   const faculties = facultiesQuery.data ?? [];
   const programs = programsQuery.data ?? [];
   const users = usersQuery.data ?? [];
+  const people = peopleQuery.data ?? [];
   const seedbeds = seedbedsQuery.data?.data ?? [];
+  const responsibleOptions = [
+    ...users.map((user) => ({
+      value: encodeResponsible("usuario", user.id),
+      label: user.nombre,
+      description: `Usuario del sistema - ${user.correo}`,
+      searchText: `${user.nombre} ${user.correo} ${user.tipoUsuario}`
+    })),
+    ...people.map((person) => ({
+      value: encodeResponsible("persona", person.id),
+      label: person.nombre,
+      description: `Persona - ${person.codigo}${person.correoInstitucional ? ` - ${person.correoInstitucional}` : ""}`,
+      searchText: `${person.codigo} ${person.nombre} ${person.correoInstitucional ?? ""} ${person.carrera ?? ""} ${person.rol}`
+    }))
+  ];
 
   return {
     faculties,
     programs,
     users,
+    people,
     seedbeds,
+    responsibleOptions,
     facultyOptions: faculties.map((faculty) => ({
       value: String(faculty.id),
       label: `${faculty.sigla} - ${faculty.nombre}`,
@@ -188,10 +236,161 @@ function useAcademicLookups() {
     seedbedOptions: seedbeds.map((seedbed) => ({
       value: String(seedbed.id),
       label: `${seedbed.codigo} - ${seedbed.nombre}`,
-      description: seedbed.coordinador?.nombre,
-      searchText: `${seedbed.codigo} ${seedbed.nombre} ${seedbed.coordinador?.nombre ?? ""}`
+      description: academicResponsibleName(seedbed.coordinador, seedbed.coordinadorPersona),
+      searchText: `${seedbed.codigo} ${seedbed.nombre} ${academicResponsibleName(seedbed.coordinador, seedbed.coordinadorPersona)}`
     }))
   };
+}
+
+export function ProgramsPage() {
+  const queryClient = useQueryClient();
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("academia:gestionar");
+  const lookups = useAcademicLookups();
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState<ProgramFormState>(initialProgramForm);
+  const [editing, setEditing] = useState<Programa | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const programs = lookups.programs.filter((program) => {
+    const normalized = search.trim().toLowerCase();
+    if (!normalized) return true;
+    return (
+      program.codigo.toLowerCase().includes(normalized) ||
+      program.nombre.toLowerCase().includes(normalized) ||
+      (program.facultad?.nombre ?? "").toLowerCase().includes(normalized) ||
+      (program.facultad?.sigla ?? "").toLowerCase().includes(normalized)
+    );
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: ProgramFormState) =>
+      apiRequest<Programa>(editing ? `/programs/${editing.id}` : "/programs", {
+        method: editing ? "PATCH" : "POST",
+        body: JSON.stringify({
+          facultadId: Number(payload.facultadId || lookups.faculties[0]?.id),
+          codigo: payload.codigo,
+          nombre: payload.nombre
+        })
+      }),
+    onSuccess: async () => {
+      setFeedback(editing ? "Programa actualizado." : "Programa creado.");
+      setEditing(null);
+      setForm(initialProgramForm);
+      await queryClient.invalidateQueries({ queryKey: ["programs"] });
+    },
+    onError: (error) => setFeedback(error instanceof Error ? error.message : "No fue posible guardar el programa.")
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest<Programa>(`/programs/${id}`, { method: "DELETE" }),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["programs"] }),
+    onError: (error) => setFeedback(error instanceof Error ? error.message : "No fue posible eliminar el programa.")
+  });
+
+  return (
+    <CatalogShell
+      title="Programas"
+      description="Programas academicos asociados a una facultad."
+      search={search}
+      onSearch={setSearch}
+      isFetching={false}
+    >
+      <SimpleTable
+        title="Programas registrados"
+        empty="No hay programas registrados."
+        columns={["Programa", "Facultad", "Relacionados", "Acciones"]}
+      >
+        {programs.map((program) => {
+          const relationCount =
+            (program._count?.usuarios ?? 0) +
+            (program._count?.materias ?? 0) +
+            (program._count?.proyectos ?? 0) +
+            (program._count?.actividades ?? 0);
+          return (
+            <tr key={program.id} className="border-t bg-white">
+              <td className="px-4 py-3">
+                <div className="font-medium">{program.nombre}</div>
+                <div className="text-xs text-muted-foreground">{program.codigo}</div>
+              </td>
+              <td className="px-4 py-3">
+                {program.facultad ? `${program.facultad.sigla} - ${program.facultad.nombre}` : "Sin facultad"}
+              </td>
+              <td className="px-4 py-3">
+                {(program._count?.materias ?? 0)} materias / {(program._count?.proyectos ?? 0)} proyectos /{" "}
+                {(program._count?.actividades ?? 0)} actividades
+              </td>
+              <td className="px-4 py-3 text-right">
+                <RowActions
+                  canManage={canManage}
+                  onEdit={() => {
+                    setEditing(program);
+                    setForm({
+                      facultadId: String(program.facultadId),
+                      codigo: program.codigo,
+                      nombre: program.nombre
+                    });
+                  }}
+                  onDelete={() => deleteMutation.mutate(program.id)}
+                  deleteDisabled={deleteMutation.isPending || relationCount > 0}
+                />
+              </td>
+            </tr>
+          );
+        })}
+      </SimpleTable>
+
+      <CatalogForm
+        title={editing ? "Editar programa" : "Nuevo programa"}
+        icon={<Building2 className="h-4 w-4 text-primary" />}
+        onSubmit={(event) => {
+          event.preventDefault();
+          saveMutation.mutate(form);
+        }}
+      >
+        <Field label="Facultad">
+          <SearchableSelect
+            options={lookups.facultyOptions}
+            value={form.facultadId || String(lookups.faculties[0]?.id ?? "")}
+            onChange={(value) => setForm((current) => ({ ...current, facultadId: value }))}
+            disabled={!canManage}
+            required
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Codigo">
+            <input
+              className="input-control"
+              value={form.codigo}
+              onChange={(event) => setForm((current) => ({ ...current, codigo: event.target.value }))}
+              disabled={!canManage}
+              required
+            />
+          </Field>
+          <Field label="Nombre">
+            <input
+              className="input-control"
+              value={form.nombre}
+              onChange={(event) => setForm((current) => ({ ...current, nombre: event.target.value }))}
+              disabled={!canManage}
+              required
+            />
+          </Field>
+        </div>
+        <FormActions
+          canManage={canManage}
+          editing={Boolean(editing)}
+          pending={saveMutation.isPending}
+          feedback={feedback}
+          onCancel={() => {
+            setEditing(null);
+            setForm(initialProgramForm);
+          }}
+          submitLabel={editing ? "Guardar programa" : "Crear programa"}
+        />
+      </CatalogForm>
+    </CatalogShell>
+  );
 }
 
 export function SubjectsPage() {
@@ -402,7 +601,7 @@ export function SubjectsPage() {
                   onClick={() =>
                     setForm((current) => ({
                       ...current,
-                      profesores: [...current.profesores, { profesorId: "", grupo: "GENERAL", periodo: "" }]
+                      profesores: [...current.profesores, { profesorId: "", grupo: "GENERAL", periodo: "DIURNO" }]
                     }))
                   }
                 >
@@ -426,11 +625,13 @@ export function SubjectsPage() {
                     placeholder="Grupo"
                     disabled={!canManage}
                   />
-                  <input
-                    className="input-control"
+                  <SearchableSelect
+                    options={periodOptions}
                     value={professor.periodo}
-                    onChange={(event) => updateSubjectProfessor(setForm, index, "periodo", event.target.value)}
+                    onChange={(value) => updateSubjectProfessor(setForm, index, "periodo", value)}
                     placeholder="Periodo"
+                    searchPlaceholder="Buscar periodo"
+                    emptyLabel="Sin periodo"
                     disabled={!canManage}
                   />
                   <Button
@@ -495,7 +696,8 @@ export function SeedbedsPage() {
         method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           facultadId: Number(payload.facultadId || lookups.faculties[0]?.id),
-          coordinadorId: Number(payload.coordinadorId),
+          coordinadorId: payload.coordinadorId ? Number(payload.coordinadorId) : null,
+          coordinadorPersonaId: payload.coordinadorPersonaId ? Number(payload.coordinadorPersonaId) : null,
           codigo: payload.codigo,
           nombre: payload.nombre,
           descripcion: payload.descripcion || undefined
@@ -537,7 +739,9 @@ export function SeedbedsPage() {
               <div className="font-medium">{seedbed.nombre}</div>
               <div className="text-xs text-muted-foreground">{seedbed.codigo}</div>
             </td>
-            <td className="px-4 py-3">{seedbed.coordinador.nombre}</td>
+            <td className="px-4 py-3">
+              {academicResponsibleName(seedbed.coordinador, seedbed.coordinadorPersona)}
+            </td>
             <td className="px-4 py-3">
               {seedbed._count.proyectos} proyectos / {seedbed._count.actividades} actividades
             </td>
@@ -548,7 +752,8 @@ export function SeedbedsPage() {
                   setEditing(seedbed);
                   setForm({
                     facultadId: String(seedbed.facultadId),
-                    coordinadorId: String(seedbed.coordinadorId),
+                    coordinadorId: seedbed.coordinadorId ? String(seedbed.coordinadorId) : "",
+                    coordinadorPersonaId: seedbed.coordinadorPersonaId ? String(seedbed.coordinadorPersonaId) : "",
                     codigo: seedbed.codigo,
                     nombre: seedbed.nombre,
                     descripcion: seedbed.descripcion ?? ""
@@ -610,7 +815,8 @@ export function ProjectsPage() {
         method: editing ? "PATCH" : "POST",
         body: JSON.stringify({
           programaId: Number(payload.programaId),
-          responsableId: Number(payload.responsableId),
+          responsableId: payload.responsableId ? Number(payload.responsableId) : null,
+          responsablePersonaId: payload.responsablePersonaId ? Number(payload.responsablePersonaId) : null,
           semilleroId: payload.semilleroId ? Number(payload.semilleroId) : null,
           nombre: payload.nombre,
           tipo: payload.tipo,
@@ -655,7 +861,9 @@ export function ProjectsPage() {
             </td>
             <td className="px-4 py-3">{project.programa.nombre}</td>
             <td className="px-4 py-3">{project.semillero?.nombre ?? "Sin semillero"}</td>
-            <td className="px-4 py-3">{project.responsable.nombre}</td>
+            <td className="px-4 py-3">
+              {academicResponsibleName(project.responsable, project.responsablePersona)}
+            </td>
             <td className="px-4 py-3 text-right">
               <RowActions
                 canManage={canManage}
@@ -663,7 +871,8 @@ export function ProjectsPage() {
                   setEditing(project);
                   setForm({
                     programaId: String(project.programaId),
-                    responsableId: String(project.responsableId),
+                    responsableId: project.responsableId ? String(project.responsableId) : "",
+                    responsablePersonaId: project.responsablePersonaId ? String(project.responsablePersonaId) : "",
                     semilleroId: project.semilleroId ? String(project.semilleroId) : "",
                     nombre: project.nombre,
                     tipo: project.tipo,
@@ -725,6 +934,7 @@ export function ActivitiesPage() {
           facultadId: Number(payload.facultadId || lookups.faculties[0]?.id),
           programaId: payload.programaId ? Number(payload.programaId) : null,
           responsableId: payload.responsableId ? Number(payload.responsableId) : null,
+          responsablePersonaId: payload.responsablePersonaId ? Number(payload.responsablePersonaId) : null,
           semilleroId: payload.semilleroId ? Number(payload.semilleroId) : null,
           nombre: payload.nombre,
           tipo: payload.tipo,
@@ -769,7 +979,9 @@ export function ActivitiesPage() {
             </td>
             <td className="px-4 py-3">{activity.programa?.nombre ?? activity.facultad.sigla}</td>
             <td className="px-4 py-3">{activity.semillero?.nombre ?? "Sin semillero"}</td>
-            <td className="px-4 py-3">{activity.responsable?.nombre ?? "Sin responsable"}</td>
+            <td className="px-4 py-3">
+              {academicResponsibleName(activity.responsable, activity.responsablePersona, "Sin responsable")}
+            </td>
             <td className="px-4 py-3 text-right">
               <RowActions
                 canManage={canManage}
@@ -779,6 +991,7 @@ export function ActivitiesPage() {
                     facultadId: String(activity.facultadId),
                     programaId: activity.programaId ? String(activity.programaId) : "",
                     responsableId: activity.responsableId ? String(activity.responsableId) : "",
+                    responsablePersonaId: activity.responsablePersonaId ? String(activity.responsablePersonaId) : "",
                     semilleroId: activity.semilleroId ? String(activity.semilleroId) : "",
                     nombre: activity.nombre,
                     tipo: activity.tipo,
@@ -926,10 +1139,17 @@ function SeedbedForm(props: {
       </Field>
       <Field label="Coordinador">
         <SearchableSelect
-          options={lookups.userOptions}
-          value={form.coordinadorId}
-          onChange={(value) => setForm((current) => ({ ...current, coordinadorId: value }))}
+          options={lookups.responsibleOptions}
+          value={responsibleValue(form.coordinadorId, form.coordinadorPersonaId)}
+          onChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              ...decodeResponsibleValue(value, "coordinador")
+            }))
+          }
           disabled={!canManage}
+          placeholder="Seleccionar usuario o persona"
+          searchPlaceholder="Buscar por nombre, correo o codigo"
           required
         />
       </Field>
@@ -971,7 +1191,20 @@ function ProjectForm(props: {
         <SearchableSelect options={lookups.programOptions} value={form.programaId} onChange={(value) => setForm((current) => ({ ...current, programaId: value }))} disabled={!canManage} required />
       </Field>
       <Field label="Responsable">
-        <SearchableSelect options={lookups.userOptions} value={form.responsableId} onChange={(value) => setForm((current) => ({ ...current, responsableId: value }))} disabled={!canManage} required />
+        <SearchableSelect
+          options={lookups.responsibleOptions}
+          value={responsibleValue(form.responsableId, form.responsablePersonaId)}
+          onChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              ...decodeResponsibleValue(value, "responsable")
+            }))
+          }
+          disabled={!canManage}
+          placeholder="Seleccionar usuario o persona"
+          searchPlaceholder="Buscar por nombre, correo o codigo"
+          required
+        />
       </Field>
       <Field label="Semillero">
         <SearchableSelect options={lookups.seedbedOptions} value={form.semilleroId} onChange={(value) => setForm((current) => ({ ...current, semilleroId: value }))} disabled={!canManage} emptyLabel="Sin semillero" />
@@ -1015,7 +1248,20 @@ function ActivityForm(props: {
         <SearchableSelect options={lookups.programOptions} value={form.programaId} onChange={(value) => setForm((current) => ({ ...current, programaId: value }))} disabled={!canManage} emptyLabel="Sin programa" />
       </Field>
       <Field label="Responsable">
-        <SearchableSelect options={lookups.userOptions} value={form.responsableId} onChange={(value) => setForm((current) => ({ ...current, responsableId: value }))} disabled={!canManage} emptyLabel="Sin responsable" />
+        <SearchableSelect
+          options={lookups.responsibleOptions}
+          value={responsibleValue(form.responsableId, form.responsablePersonaId)}
+          onChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              ...decodeResponsibleValue(value, "responsable")
+            }))
+          }
+          disabled={!canManage}
+          placeholder="Sin responsable"
+          searchPlaceholder="Buscar por nombre, correo o codigo"
+          emptyLabel="Sin responsable"
+        />
       </Field>
       <Field label="Semillero">
         <SearchableSelect options={lookups.seedbedOptions} value={form.semilleroId} onChange={(value) => setForm((current) => ({ ...current, semilleroId: value }))} disabled={!canManage} emptyLabel="Sin semillero" />
@@ -1132,6 +1378,46 @@ function FormActions({
       </div>
     </>
   );
+}
+
+function encodeResponsible(kind: "usuario" | "persona", id: number) {
+  return `${kind}:${id}`;
+}
+
+function responsibleValue(userId: string, personId: string) {
+  if (userId) {
+    return encodeResponsible("usuario", Number(userId));
+  }
+  if (personId) {
+    return encodeResponsible("persona", Number(personId));
+  }
+  return "";
+}
+
+function decodeResponsibleValue(value: string, field: "coordinador" | "responsable") {
+  const [kind, rawId] = value.split(":");
+  const userId = kind === "usuario" ? rawId ?? "" : "";
+  const personId = kind === "persona" ? rawId ?? "" : "";
+
+  if (field === "coordinador") {
+    return {
+      coordinadorId: userId,
+      coordinadorPersonaId: personId
+    };
+  }
+
+  return {
+    responsableId: userId,
+    responsablePersonaId: personId
+  };
+}
+
+function academicResponsibleName(
+  user: Pick<AcademicUser, "nombre"> | null | undefined,
+  person: Pick<LoanPerson, "nombre"> | null | undefined,
+  emptyLabel = "Sin responsable"
+) {
+  return user?.nombre ?? person?.nombre ?? emptyLabel;
 }
 
 function updateSubjectProfessor(

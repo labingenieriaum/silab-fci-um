@@ -16,11 +16,13 @@ import { AcademicService } from "./academic.service";
 import { AcademicListQueryDto } from "./dto/academic-query.dto";
 import { CreateActivityDto } from "./dto/create-activity.dto";
 import { CreateFacultyDto } from "./dto/create-faculty.dto";
+import { CreateProgramDto } from "./dto/create-program.dto";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { CreateSeedbedDto } from "./dto/create-seedbed.dto";
 import { CreateSubjectDto } from "./dto/create-subject.dto";
 import { UpdateActivityDto } from "./dto/update-activity.dto";
 import { UpdateFacultyDto } from "./dto/update-faculty.dto";
+import { UpdateProgramDto } from "./dto/update-program.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
 import { UpdateSeedbedDto } from "./dto/update-seedbed.dto";
 import { UpdateSubjectDto } from "./dto/update-subject.dto";
@@ -64,12 +66,39 @@ export class AcademicController {
     );
   }
 
+  @Post("programs")
+  @Permissions("academia:gestionar")
+  createProgram(@CurrentUser() user: JwtUser, @Body() dto: CreateProgramDto) {
+    return this.academicService.createProgram(user, dto);
+  }
+
+  @Patch("programs/:id")
+  @Permissions("academia:gestionar")
+  updateProgram(
+    @CurrentUser() user: JwtUser,
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: UpdateProgramDto
+  ) {
+    return this.academicService.updateProgram(user, id, dto);
+  }
+
+  @Delete("programs/:id")
+  @Permissions("academia:gestionar")
+  removeProgram(@CurrentUser() user: JwtUser, @Param("id", ParseIntPipe) id: number) {
+    return this.academicService.removeProgram(user, id);
+  }
+
   @Get("academic-users")
   findAcademicUsers(@CurrentUser() user: JwtUser, @Query("facultadId") facultadId?: string) {
     return this.academicService.findAcademicUsers(
       user,
       facultadId ? Number(facultadId) : undefined
     );
+  }
+
+  @Get("academic-people")
+  findAcademicPeople() {
+    return this.academicService.findAcademicPeople();
   }
 
   @Get("subjects")

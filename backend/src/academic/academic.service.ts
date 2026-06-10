@@ -12,11 +12,13 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AcademicListQueryDto } from "./dto/academic-query.dto";
 import { CreateActivityDto } from "./dto/create-activity.dto";
 import { CreateFacultyDto } from "./dto/create-faculty.dto";
+import { CreateProgramDto } from "./dto/create-program.dto";
 import { CreateProjectDto } from "./dto/create-project.dto";
 import { CreateSeedbedDto } from "./dto/create-seedbed.dto";
 import { CreateSubjectDto, SubjectProfessorInputDto } from "./dto/create-subject.dto";
 import { UpdateActivityDto } from "./dto/update-activity.dto";
 import { UpdateFacultyDto } from "./dto/update-faculty.dto";
+import { UpdateProgramDto } from "./dto/update-program.dto";
 import { UpdateProjectDto } from "./dto/update-project.dto";
 import { UpdateSeedbedDto } from "./dto/update-seedbed.dto";
 import { UpdateSubjectDto } from "./dto/update-subject.dto";
@@ -37,6 +39,28 @@ const facultySelect = {
     }
   }
 } satisfies Prisma.FacultadSelect;
+
+const programSelect = {
+  id: true,
+  facultadId: true,
+  nombre: true,
+  codigo: true,
+  facultad: {
+    select: {
+      id: true,
+      nombre: true,
+      sigla: true
+    }
+  },
+  _count: {
+    select: {
+      usuarios: true,
+      materias: true,
+      proyectos: true,
+      actividades: true
+    }
+  }
+} satisfies Prisma.ProgramaSelect;
 
 const subjectProfessorSelect = {
   id: true,
@@ -95,6 +119,7 @@ const seedbedSelect = {
   id: true,
   facultadId: true,
   coordinadorId: true,
+  coordinadorPersonaId: true,
   nombre: true,
   codigo: true,
   descripcion: true,
@@ -113,6 +138,15 @@ const seedbedSelect = {
       correo: true
     }
   },
+  coordinadorPersona: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      correoInstitucional: true,
+      rol: true
+    }
+  },
   _count: {
     select: {
       proyectos: true,
@@ -125,6 +159,7 @@ const projectSelect = {
   id: true,
   programaId: true,
   responsableId: true,
+  responsablePersonaId: true,
   semilleroId: true,
   nombre: true,
   tipo: true,
@@ -153,6 +188,15 @@ const projectSelect = {
       correo: true
     }
   },
+  responsablePersona: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      correoInstitucional: true,
+      rol: true
+    }
+  },
   semillero: {
     select: {
       id: true,
@@ -172,6 +216,7 @@ const activitySelect = {
   facultadId: true,
   programaId: true,
   responsableId: true,
+  responsablePersonaId: true,
   semilleroId: true,
   nombre: true,
   tipo: true,
@@ -196,6 +241,15 @@ const activitySelect = {
       id: true,
       nombre: true,
       correo: true
+    }
+  },
+  responsablePersona: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      correoInstitucional: true,
+      rol: true
     }
   },
   semillero: {
@@ -293,12 +347,63 @@ export class AcademicService {
         facultadId: scopedFacultyId
       },
       orderBy: { nombre: "asc" },
-      select: {
-        id: true,
-        facultadId: true,
-        nombre: true,
-        codigo: true
-      }
+      select: programSelect
+    });
+  }
+
+  async createProgram(user: JwtUser, dto: CreateProgramDto) {
+    const facultadId = await this.ensureFacultyInScope(user, dto.facultadId);
+
+    try {
+      return await this.prisma.programa.create({
+        data: {
+          facultadId,
+          nombre: dto.nombre.trim(),
+          codigo: cleanCode(dto.codigo)
+        },
+        select: programSelect
+      });
+    } catch (error) {
+      handleKnownDatabaseError(error, "Ya existe un programa con ese codigo en la facultad.");
+    }
+  }
+
+  async updateProgram(user: JwtUser, id: number, dto: UpdateProgramDto) {
+    const current = await this.findProgramOrThrow(user, id);
+    const facultadId = await this.ensureFacultyInScope(user, dto.facultadId ?? current.facultadId);
+
+    try {
+      return await this.prisma.programa.update({
+        where: { id },
+        data: {
+          facultadId: dto.facultadId === undefined ? undefined : facultadId,
+          nombre: dto.nombre?.trim(),
+          codigo: dto.codigo === undefined ? undefined : cleanCode(dto.codigo)
+        },
+        select: programSelect
+      });
+    } catch (error) {
+      handleKnownDatabaseError(error, "Ya existe un programa con ese codigo en la facultad.");
+    }
+  }
+
+  async removeProgram(user: JwtUser, id: number) {
+    const program = await this.findProgramOrThrow(user, id);
+    const totalRelations =
+      program._count.usuarios +
+      program._count.materias +
+      program._count.proyectos +
+      program._count.actividades;
+    if (totalRelations > 0) {
+      throw new BadRequestException(
+        "No se puede eliminar un programa con usuarios, materias, proyectos o actividades asociados."
+      );
+    }
+
+    return this.prisma.programa.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+      select: programSelect
     });
   }
 
@@ -320,6 +425,27 @@ export class AcademicService {
         facultadId: true,
         programaId: true
       }
+    });
+  }
+
+  findAcademicPeople() {
+    return this.prisma.personaPrestamo.findMany({
+      where: {
+        deletedAt: null,
+        activo: true
+      },
+      orderBy: [{ nombre: "asc" }, { codigo: "asc" }],
+      select: {
+        id: true,
+        codigo: true,
+        nombre: true,
+        correoInstitucional: true,
+        carrera: true,
+        semestre: true,
+        rol: true,
+        activo: true
+      },
+      take: 300
     });
   }
 
@@ -458,7 +584,9 @@ export class AcademicService {
         ? [
             { codigo: { contains: query.search, mode: "insensitive" } },
             { nombre: { contains: query.search, mode: "insensitive" } },
-            { coordinador: { nombre: { contains: query.search, mode: "insensitive" } } }
+            { coordinador: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { coordinadorPersona: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { coordinadorPersona: { codigo: { contains: query.search, mode: "insensitive" } } }
           ]
         : undefined
     };
@@ -478,13 +606,20 @@ export class AcademicService {
 
   async createSeedbed(user: JwtUser, dto: CreateSeedbedDto) {
     const facultyId = await this.ensureFacultyInScope(user, dto.facultadId);
-    await this.ensureUserInFaculty(dto.coordinadorId, facultyId, "El coordinador no pertenece a la facultad indicada.");
+    await this.ensureAcademicResponsible({
+      userId: dto.coordinadorId,
+      personId: dto.coordinadorPersonaId,
+      facultyId,
+      userMessage: "El coordinador no pertenece a la facultad indicada.",
+      missingMessage: "Selecciona un coordinador usuario o persona."
+    });
 
     try {
       return await this.prisma.semillero.create({
         data: {
           facultadId: facultyId,
-          coordinadorId: dto.coordinadorId,
+          coordinadorId: dto.coordinadorId ?? null,
+          coordinadorPersonaId: dto.coordinadorPersonaId ?? null,
           codigo: cleanCode(dto.codigo),
           nombre: dto.nombre.trim(),
           descripcion: cleanNullableText(dto.descripcion),
@@ -500,16 +635,27 @@ export class AcademicService {
   async updateSeedbed(user: JwtUser, id: number, dto: UpdateSeedbedDto) {
     const current = await this.findSeedbedOrThrow(user, id);
     const facultyId = await this.ensureFacultyInScope(user, dto.facultadId ?? current.facultadId);
-    if (dto.coordinadorId) {
-      await this.ensureUserInFaculty(dto.coordinadorId, facultyId, "El coordinador no pertenece a la facultad indicada.");
-    }
+    const coordinator = resolveNextResponsible(
+      dto.coordinadorId,
+      dto.coordinadorPersonaId,
+      current.coordinadorId,
+      current.coordinadorPersonaId
+    );
+    await this.ensureAcademicResponsible({
+      userId: coordinator.userId,
+      personId: coordinator.personId,
+      facultyId,
+      userMessage: "El coordinador no pertenece a la facultad indicada.",
+      missingMessage: "Selecciona un coordinador usuario o persona."
+    });
 
     try {
       return await this.prisma.semillero.update({
         where: { id },
         data: {
           facultadId: dto.facultadId,
-          coordinadorId: dto.coordinadorId,
+          coordinadorId: coordinator.userId,
+          coordinadorPersonaId: coordinator.personId,
           codigo: dto.codigo === undefined ? undefined : cleanCode(dto.codigo),
           nombre: dto.nombre?.trim(),
           descripcion:
@@ -551,6 +697,8 @@ export class AcademicService {
         ? [
             { nombre: { contains: query.search, mode: "insensitive" } },
             { responsable: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { responsablePersona: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { responsablePersona: { codigo: { contains: query.search, mode: "insensitive" } } },
             { semillero: { nombre: { contains: query.search, mode: "insensitive" } } },
             { semilleroInvestigacion: { contains: query.search, mode: "insensitive" } }
           ]
@@ -572,7 +720,13 @@ export class AcademicService {
 
   async createProject(user: JwtUser, dto: CreateProjectDto) {
     const program = await this.ensureProgramInScope(user, dto.programaId);
-    await this.ensureUserInFaculty(dto.responsableId, program.facultadId, "El responsable no pertenece a la facultad del programa.");
+    await this.ensureAcademicResponsible({
+      userId: dto.responsableId,
+      personId: dto.responsablePersonaId,
+      facultyId: program.facultadId,
+      userMessage: "El responsable no pertenece a la facultad del programa.",
+      missingMessage: "Selecciona un responsable usuario o persona."
+    });
     if (dto.semilleroId) {
       await this.ensureSeedbedInFaculty(user, dto.semilleroId, program.facultadId);
     }
@@ -581,7 +735,8 @@ export class AcademicService {
       return await this.prisma.proyecto.create({
         data: {
           programaId: dto.programaId,
-          responsableId: dto.responsableId,
+          responsableId: dto.responsableId ?? null,
+          responsablePersonaId: dto.responsablePersonaId ?? null,
           semilleroId: dto.semilleroId ?? null,
           nombre: dto.nombre.trim(),
           tipo: dto.tipo,
@@ -599,9 +754,19 @@ export class AcademicService {
   async updateProject(user: JwtUser, id: number, dto: UpdateProjectDto) {
     const current = await this.findProjectOrThrow(user, id);
     const program = await this.ensureProgramInScope(user, dto.programaId ?? current.programaId);
-    if (dto.responsableId) {
-      await this.ensureUserInFaculty(dto.responsableId, program.facultadId, "El responsable no pertenece a la facultad del programa.");
-    }
+    const responsible = resolveNextResponsible(
+      dto.responsableId,
+      dto.responsablePersonaId,
+      current.responsableId,
+      current.responsablePersonaId
+    );
+    await this.ensureAcademicResponsible({
+      userId: responsible.userId,
+      personId: responsible.personId,
+      facultyId: program.facultadId,
+      userMessage: "El responsable no pertenece a la facultad del programa.",
+      missingMessage: "Selecciona un responsable usuario o persona."
+    });
     if (dto.semilleroId) {
       await this.ensureSeedbedInFaculty(user, dto.semilleroId, program.facultadId);
     }
@@ -610,7 +775,8 @@ export class AcademicService {
       where: { id },
       data: {
         programaId: dto.programaId,
-        responsableId: dto.responsableId,
+        responsableId: responsible.userId,
+        responsablePersonaId: responsible.personId,
         semilleroId: dto.semilleroId,
         nombre: dto.nombre?.trim(),
         tipo: dto.tipo,
@@ -651,6 +817,8 @@ export class AcademicService {
             { nombre: { contains: query.search, mode: "insensitive" } },
             { descripcion: { contains: query.search, mode: "insensitive" } },
             { responsable: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { responsablePersona: { nombre: { contains: query.search, mode: "insensitive" } } },
+            { responsablePersona: { codigo: { contains: query.search, mode: "insensitive" } } },
             { semillero: { nombre: { contains: query.search, mode: "insensitive" } } }
           ]
         : undefined
@@ -677,6 +845,10 @@ export class AcademicService {
     if (dto.responsableId) {
       await this.ensureUserInFaculty(dto.responsableId, facultyId, "El responsable no pertenece a la facultad indicada.");
     }
+    if (dto.responsablePersonaId) {
+      await this.ensurePersonExists(dto.responsablePersonaId, "La persona responsable no existe o no esta activa.");
+    }
+    ensureOnlyOneResponsible(dto.responsableId, dto.responsablePersonaId, "Selecciona usuario o persona responsable, no ambos.");
     if (dto.semilleroId) {
       await this.ensureSeedbedInFaculty(user, dto.semilleroId, facultyId);
     }
@@ -686,6 +858,7 @@ export class AcademicService {
         facultadId: facultyId,
         programaId: dto.programaId ?? null,
         responsableId: dto.responsableId ?? null,
+        responsablePersonaId: dto.responsablePersonaId ?? null,
         semilleroId: dto.semilleroId ?? null,
         nombre: dto.nombre.trim(),
         tipo: dto.tipo,
@@ -702,9 +875,19 @@ export class AcademicService {
     if (dto.programaId) {
       await this.ensureProgramInFaculty(dto.programaId, facultyId);
     }
-    if (dto.responsableId) {
-      await this.ensureUserInFaculty(dto.responsableId, facultyId, "El responsable no pertenece a la facultad indicada.");
+    const responsible = resolveNextOptionalResponsible(
+      dto.responsableId,
+      dto.responsablePersonaId,
+      current.responsableId,
+      current.responsablePersonaId
+    );
+    if (responsible.userId) {
+      await this.ensureUserInFaculty(responsible.userId, facultyId, "El responsable no pertenece a la facultad indicada.");
     }
+    if (responsible.personId) {
+      await this.ensurePersonExists(responsible.personId, "La persona responsable no existe o no esta activa.");
+    }
+    ensureOnlyOneResponsible(responsible.userId, responsible.personId, "Selecciona usuario o persona responsable, no ambos.");
     if (dto.semilleroId) {
       await this.ensureSeedbedInFaculty(user, dto.semilleroId, facultyId);
     }
@@ -714,7 +897,8 @@ export class AcademicService {
       data: {
         facultadId: dto.facultadId,
         programaId: dto.programaId,
-        responsableId: dto.responsableId,
+        responsableId: responsible.userId,
+        responsablePersonaId: responsible.personId,
         semilleroId: dto.semilleroId,
         nombre: dto.nombre?.trim(),
         tipo: dto.tipo,
@@ -783,6 +967,24 @@ export class AcademicService {
     }
 
     return subject;
+  }
+
+  private async findProgramOrThrow(user: JwtUser, id: number) {
+    const scopedFacultyId = getUserFacultyScope(user);
+    const program = await this.prisma.programa.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        facultadId: scopedFacultyId ?? undefined
+      },
+      select: programSelect
+    });
+
+    if (!program) {
+      throw new NotFoundException("Programa no encontrado.");
+    }
+
+    return program;
   }
 
   private async findSeedbedOrThrow(user: JwtUser, id: number) {
@@ -907,6 +1109,48 @@ export class AcademicService {
     }
   }
 
+  private async ensurePersonExists(personId: number, message: string) {
+    const person = await this.prisma.personaPrestamo.findFirst({
+      where: {
+        id: personId,
+        deletedAt: null,
+        activo: true
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (!person) {
+      throw new BadRequestException(message);
+    }
+  }
+
+  private async ensureAcademicResponsible({
+    userId,
+    personId,
+    facultyId,
+    userMessage,
+    missingMessage
+  }: {
+    userId?: number | null;
+    personId?: number | null;
+    facultyId: number;
+    userMessage: string;
+    missingMessage: string;
+  }) {
+    if (!userId && !personId) {
+      throw new BadRequestException(missingMessage);
+    }
+    ensureOnlyOneResponsible(userId, personId, "Selecciona usuario o persona, no ambos.");
+    if (userId) {
+      await this.ensureUserInFaculty(userId, facultyId, userMessage);
+    }
+    if (personId) {
+      await this.ensurePersonExists(personId, "La persona seleccionada no existe o no esta activa.");
+    }
+  }
+
   private async ensureProfessorAssignmentsInScope(
     professors: SubjectProfessorInputDto[],
     facultyId: number
@@ -1007,6 +1251,36 @@ function cleanCode(value: string) {
 function cleanGroup(value?: string | null) {
   const cleaned = value?.trim();
   return cleaned ? cleaned.toUpperCase() : "GENERAL";
+}
+
+function ensureOnlyOneResponsible(
+  userId?: number | null,
+  personId?: number | null,
+  message = "Selecciona usuario o persona, no ambos."
+) {
+  if (userId && personId) {
+    throw new BadRequestException(message);
+  }
+}
+
+function resolveNextResponsible(
+  nextUserId: number | null | undefined,
+  nextPersonId: number | null | undefined,
+  currentUserId: number | null | undefined,
+  currentPersonId: number | null | undefined
+) {
+  const userId = nextUserId === undefined ? currentUserId ?? null : nextUserId;
+  const personId = nextPersonId === undefined ? currentPersonId ?? null : nextPersonId;
+  return { userId, personId };
+}
+
+function resolveNextOptionalResponsible(
+  nextUserId: number | null | undefined,
+  nextPersonId: number | null | undefined,
+  currentUserId: number | null | undefined,
+  currentPersonId: number | null | undefined
+) {
+  return resolveNextResponsible(nextUserId, nextPersonId, currentUserId, currentPersonId);
 }
 
 function handleKnownDatabaseError(error: unknown, uniqueMessage: string): never {

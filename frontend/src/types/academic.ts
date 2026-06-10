@@ -1,5 +1,6 @@
 import type { Facultad, Programa } from "@/types/catalogs";
 import type { PaginatedResponse } from "@/types/inventory";
+import type { LoanPerson } from "@/types/people";
 
 export type TipoProyecto =
   | "AULA"
@@ -64,13 +65,15 @@ export interface Subject {
 export interface Seedbed {
   id: number;
   facultadId: number;
-  coordinadorId: number;
+  coordinadorId: number | null;
+  coordinadorPersonaId: number | null;
   nombre: string;
   codigo: string;
   descripcion: string | null;
   activo: boolean;
   facultad: Facultad;
-  coordinador: Pick<AcademicUser, "id" | "nombre" | "correo">;
+  coordinador: Pick<AcademicUser, "id" | "nombre" | "correo"> | null;
+  coordinadorPersona: Pick<LoanPerson, "id" | "codigo" | "nombre" | "correoInstitucional" | "rol"> | null;
   _count: {
     proyectos: number;
     actividades: number;
@@ -80,7 +83,8 @@ export interface Seedbed {
 export interface Project {
   id: number;
   programaId: number;
-  responsableId: number;
+  responsableId: number | null;
+  responsablePersonaId: number | null;
   semilleroId: number | null;
   nombre: string;
   tipo: TipoProyecto;
@@ -90,7 +94,8 @@ export interface Project {
   programa: Programa & {
     facultad: Facultad;
   };
-  responsable: Pick<AcademicUser, "id" | "nombre" | "correo">;
+  responsable: Pick<AcademicUser, "id" | "nombre" | "correo"> | null;
+  responsablePersona: Pick<LoanPerson, "id" | "codigo" | "nombre" | "correoInstitucional" | "rol"> | null;
   semillero: Pick<Seedbed, "id" | "nombre" | "codigo"> | null;
   _count: {
     prestamos: number;
@@ -102,6 +107,7 @@ export interface ActivityRecord {
   facultadId: number;
   programaId: number | null;
   responsableId: number | null;
+  responsablePersonaId: number | null;
   semilleroId: number | null;
   nombre: string;
   tipo: TipoActividad;
@@ -110,6 +116,7 @@ export interface ActivityRecord {
   facultad: Facultad;
   programa: Pick<Programa, "id" | "nombre" | "codigo"> | null;
   responsable: Pick<AcademicUser, "id" | "nombre" | "correo"> | null;
+  responsablePersona: Pick<LoanPerson, "id" | "codigo" | "nombre" | "correoInstitucional" | "rol"> | null;
   semillero: Pick<Seedbed, "id" | "nombre" | "codigo"> | null;
   _count: {
     prestamos: number;

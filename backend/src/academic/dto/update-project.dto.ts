@@ -11,7 +11,12 @@ export class UpdateProjectDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
-  responsableId?: number;
+  responsableId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  responsablePersonaId?: number | null;
 
   @Type(() => Number)
   @IsInt()

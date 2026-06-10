@@ -694,6 +694,28 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm run lint --workspace @silab/frontend`: correcto.
 - `npm run build --workspace @silab/frontend`: correcto.
 
+## Ajuste programas academicos y periodo de materias
+
+- Se agrego CRUD backend para `Programas`:
+  - `POST /programs`
+  - `PATCH /programs/:id`
+  - `DELETE /programs/:id`
+- Los programas quedan amarrados a facultades mediante `facultadId`.
+- No se permite eliminar programas con usuarios, materias, proyectos o actividades asociadas.
+- Se agrego la pagina `Programas` en el menu Academico y ruta `/programs`.
+- La pagina permite listar, buscar, crear, editar y eliminar programas.
+- En materias, el campo libre `Periodo` para profesores/grupos se cambio por selector:
+  - Diurno
+  - Nocturno
+  - Virtual
+
+## Validaciones ajuste programas academicos
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto.
+
 ## Ajuste catalogo academico: materias, semilleros, proyectos y actividades
 
 - Se amplio el modelo academico para soportar materias con varios profesores y grupos.
@@ -758,3 +780,107 @@ Iniciar fase 4 cuando el usuario lo autorice: prestamos, aprobaciones, entregas 
 - `npm.cmd run lint --workspace @silab/backend`: correcto.
 - `npm.cmd run lint --workspace @silab/frontend`: correcto.
 - `npm.cmd run dev:backend`: compila con 0 errores y Nest inicia correctamente; la ejecucion se corto por timeout despues de confirmar el arranque.
+
+## Ajuste responsables academicos usuario/persona
+
+- En semilleros, proyectos y actividades el coordinador/responsable ahora puede ser:
+  - Usuario del sistema.
+  - Persona registrada en Administracion > Personas.
+- Se agrego endpoint `GET /api/v1/academic-people` para cargar personas activas como opciones academicas.
+- Se agregaron columnas nuevas:
+  - `semilleros.coordinador_persona_id`.
+  - `proyectos.responsable_persona_id`.
+  - `actividades.responsable_persona_id`.
+- `semilleros.coordinador_id` y `proyectos.responsable_id` pasaron a ser opcionales para permitir responsables tipo persona.
+- El backend valida que solo se envie usuario o persona, no ambos.
+- Semilleros y proyectos siguen exigiendo un responsable; actividades pueden quedar sin responsable.
+- Los desplegables de Semilleros, Proyectos y Actividades ahora muestran un buscador unico con usuarios del sistema y personas registradas.
+- Se agrego migracion `backend/prisma/migrations/20260609194000_add_people_to_academic_responsibles/migration.sql`.
+
+## Validaciones ajuste responsables academicos
+
+- `npm run prisma:format`: correcto.
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: correcto, migracion aplicada en PostgreSQL remoto `siilab_fci_dev`.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+
+## Ajuste vinculacion de personas
+
+- En Administracion > Personas el campo antes mostrado como `Carrera` ahora cambia segun el rol:
+  - Estudiante: selector de programa/carrera desde los programas academicos existentes.
+  - Profesor: selector de facultad desde las facultades existentes.
+  - Administrativo: campo libre de dependencia escrito por el administrador.
+- La creacion rapida de persona desde el formulario interno de prestamos usa la misma regla y los mismos selectores.
+- El backend valida en registros manuales que:
+  - El estudiante quede vinculado a un programa academico existente.
+  - El profesor quede vinculado a una facultad existente.
+  - El administrativo tenga dependencia escrita.
+- El backend de prestamos aplica la misma validacion cuando registra una persona nueva durante una solicitud manual.
+- La carga CSV mantiene la columna `carrera`, pero segun el rol representa programa, facultad o dependencia.
+- En carga CSV, si programa/facultad/dependencia viene vacio o no coincide con catalogos, la persona se registra igual con `carrera = null`.
+- El resultado de la carga CSV informa cuantas personas quedaron sin programa/facultad/dependencia y se guardaron en null.
+
+## Validaciones ajuste vinculacion de personas
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+
+## Ajuste formulario publico de prestamos
+
+- El formulario publico ahora solicita tipo de solicitante:
+  - Estudiante.
+  - Profesor.
+  - Administrativo.
+- Segun el tipo, el formulario muestra campos condicionales:
+  - Estudiante: codigo estudiantil, programa/carrera desde programas existentes y semestre.
+  - Profesor: cedula y materia.
+  - Administrativo: cedula y dependencia.
+- Se agrego nota para estudiantes indicando que deben escribir codigo estudiantil, no cedula ni tarjeta de identidad.
+- Se agrego endpoint publico `GET /api/v1/public/loan-programs` para cargar programas academicos en el formulario publico.
+- Las solicitudes publicas ahora guardan rol, identificacion, programa, semestre, materia y dependencia.
+- La vista interna de Solicitudes publicas muestra esos datos para revision de coordinacion.
+- Se agrego migracion `backend/prisma/migrations/20260610102000_add_public_request_applicant_details/migration.sql`.
+
+## Validaciones ajuste formulario publico
+
+- `npm run prisma:format`: correcto.
+- `npm run prisma:validate`: correcto.
+- `npm run prisma:generate`: correcto.
+- `npx prisma migrate deploy --schema ../schema_silab_fci.prisma`: correcto, migracion aplicada en PostgreSQL remoto `siilab_fci_dev`.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/frontend`: correcto.
+
+## Correccion fecha formulario publico
+
+- Se corrigio el parseo backend de fechas `YYYY-MM-DD` del formulario publico.
+- Antes `new Date("2026-06-09")` podia interpretarse en UTC y en zona horaria Colombia quedar como el dia anterior.
+- Ahora las fechas de prestamo/devolucion se parsean como fecha local para permitir solicitudes del dia actual correctamente.
+
+## Validaciones correccion fecha formulario publico
+
+- `npm run lint --workspace @silab/backend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+
+## Ajuste pantalla de prestamos y aprobacion publica
+
+- La aprobacion de solicitudes publicas ya no falla si SMTP no esta configurado.
+- Si SMTP aun no tiene autorizacion/configuracion de TI, la solicitud publica se aprueba igual y el envio de correo se omite sin bloquear la operacion.
+- En Prestamos, el formulario interno `Nueva solicitud` paso a abrirse en un modal desde un boton superior.
+- Las solicitudes publicas dejaron de mostrarse como tarjetas laterales y ahora se muestran como tabla debajo de la tabla de prestamos.
+- La tabla de solicitudes publicas muestra maximo 15 registros por pagina con controles Anterior/Siguiente.
+- La pantalla queda preparada para listas largas sin depender de una columna lateral estrecha.
+
+## Validaciones ajuste pantalla de prestamos
+
+- `npm run build --workspace @silab/frontend`: correcto, con advertencia de bundle mayor a 500 kB.
+- `npm run lint --workspace @silab/frontend`: correcto.
+- `npm run build --workspace @silab/backend`: correcto.
+- `npm run lint --workspace @silab/backend`: correcto.

@@ -26,6 +26,7 @@ import type {
   PaginatedProjects,
   PaginatedSubjects
 } from "@/types/academic";
+import type { Facultad, Programa } from "@/types/catalogs";
 import type { Equipment, EquipmentUnit, PaginatedResponse } from "@/types/inventory";
 import type {
   EstadoCondicionEquipo,
@@ -71,6 +72,12 @@ interface PublicLoanRequest {
   equipoId: number | null;
   nombreCompleto: string;
   correoInstitucional: string;
+  rolSolicitante: RolPersonaPrestamo;
+  identificacion: string | null;
+  programa: string | null;
+  semestre: number | null;
+  materia: string | null;
+  dependencia: string | null;
   codigoRecurso: string;
   fechaPrestamo: string;
   fechaDevolucionEstimada: string;
@@ -155,6 +162,8 @@ export function LoansPage() {
     Record<number, EstadoCondicionEquipo>
   >({});
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [loanFormOpen, setLoanFormOpen] = useState(false);
+  const [publicRequestPage, setPublicRequestPage] = useState(1);
   const [publicRequestNotes, setPublicRequestNotes] = useState<Record<number, string>>({});
   const [returnPhotos, setReturnPhotos] = useState<ReturnEvidencePhoto[]>([]);
   const [returnSignatures, setReturnSignatures] = useState<Record<ReturnSignatureKey, string>>({
@@ -188,6 +197,16 @@ export function LoansPage() {
     queryFn: () => apiRequest<PaginatedPeople>("/people?page=1&pageSize=200&activo=true")
   });
 
+  const programsQuery = useQuery({
+    queryKey: ["programs"],
+    queryFn: () => apiRequest<Programa[]>("/programs")
+  });
+
+  const facultiesQuery = useQuery({
+    queryKey: ["faculties"],
+    queryFn: () => apiRequest<Facultad[]>("/faculties")
+  });
+
   const subjectsQuery = useQuery({
     queryKey: ["subjects", "loan-form"],
     queryFn: () => apiRequest<PaginatedSubjects>("/subjects?page=1&pageSize=200&activo=true")
@@ -217,10 +236,19 @@ export function LoansPage() {
   const loans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const requesterPeople = useMemo(() => peopleQuery.data?.data ?? [], [peopleQuery.data]);
+  const programs = useMemo(() => programsQuery.data ?? [], [programsQuery.data]);
+  const faculties = useMemo(() => facultiesQuery.data ?? [], [facultiesQuery.data]);
   const subjects = useMemo(() => subjectsQuery.data?.data ?? [], [subjectsQuery.data]);
   const projects = useMemo(() => projectsQuery.data?.data ?? [], [projectsQuery.data]);
   const activities = useMemo(() => activitiesQuery.data?.data ?? [], [activitiesQuery.data]);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0] ?? null;
+  const publicRequests = publicRequestsQuery.data ?? [];
+  const publicRequestPageSize = 15;
+  const publicRequestTotalPages = Math.max(1, Math.ceil(publicRequests.length / publicRequestPageSize));
+  const paginatedPublicRequests = publicRequests.slice(
+    (Math.min(publicRequestPage, publicRequestTotalPages) - 1) * publicRequestPageSize,
+    Math.min(publicRequestPage, publicRequestTotalPages) * publicRequestPageSize
+  );
 
   const requesterOptions = useMemo(
     () =>
@@ -231,6 +259,26 @@ export function LoansPage() {
         searchText: `${requester.codigo} ${requester.nombre} ${requester.correoInstitucional ?? ""} ${requester.carrera ?? ""}`
       })),
     [requesterPeople]
+  );
+  const personProgramOptions = useMemo(
+    () =>
+      programs.map((program) => ({
+        value: program.nombre,
+        label: program.nombre,
+        description: `${program.codigo}${program.facultad ? ` - ${program.facultad.sigla}` : ""}`,
+        searchText: `${program.codigo} ${program.nombre} ${program.facultad?.nombre ?? ""} ${program.facultad?.sigla ?? ""}`
+      })),
+    [programs]
+  );
+  const personFacultyOptions = useMemo(
+    () =>
+      faculties.map((faculty) => ({
+        value: faculty.nombre,
+        label: `${faculty.sigla} - ${faculty.nombre}`,
+        description: "Facultad",
+        searchText: `${faculty.sigla} ${faculty.nombre}`
+      })),
+    [faculties]
   );
 
   const equipmentOptions = useMemo(
@@ -376,6 +424,7 @@ export function LoansPage() {
       setFeedback("Solicitud registrada correctamente.");
       setSelectedLoanId(loan.id);
       setForm(initialForm);
+      setLoanFormOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["loans"] }),
         queryClient.invalidateQueries({ queryKey: ["loan-requester-people"] }),
@@ -529,7 +578,7 @@ export function LoansPage() {
       [key]: value,
       ...(key === "equipoId" ? { equipoUnidadId: "", cantidadSolicitada: "1" } : {}),
       ...(key === "materiaId" ? { materiaProfesorId: "" } : {}),
-      ...(key === "personaRol" && value !== "ESTUDIANTE" ? { personaSemestre: "" } : {})
+      ...(key === "personaRol" ? { personaCarrera: "", personaSemestre: value === "ESTUDIANTE" ? current.personaSemestre : "" } : {})
     }));
   }
 
@@ -547,6 +596,16 @@ export function LoansPage() {
         !form.personaCorreoInstitucional.trim())
     ) {
       setFeedback("Registra codigo, nombre y correo institucional de la persona.");
+      return;
+    }
+    if (form.solicitanteModo === "NUEVA" && !form.personaCarrera.trim()) {
+      setFeedback(
+        form.personaRol === "ADMINISTRATIVO"
+          ? "Registra la dependencia de la persona."
+          : form.personaRol === "PROFESOR"
+            ? "Selecciona la facultad del profesor."
+            : "Selecciona el programa del estudiante."
+      );
       return;
     }
     if (new Date(form.fechaDevolucionEstimada) <= new Date(form.fechaRequerida)) {
@@ -656,6 +715,12 @@ export function LoansPage() {
             <Copy className="h-4 w-4" />
             Copiar link formulario
           </Button>
+          {hasPermission("prestamos:solicitar") && (
+            <Button type="button" onClick={() => setLoanFormOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Nueva solicitud
+            </Button>
+          )}
           <div className="flex h-10 items-center gap-2 rounded-md border bg-white px-3">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input
@@ -675,7 +740,7 @@ export function LoansPage() {
         <Metric label="En curso" value={summary.enCurso} icon={<PackageCheck className="h-4 w-4" />} />
       </section>
 
-      <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_430px]">
+      <section className="space-y-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -748,16 +813,22 @@ export function LoansPage() {
         <div className="space-y-4">
           {hasPermission("prestamos:aprobar") && (
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileQuestion className="h-4 w-4 text-primary" />
-                  Solicitudes publicas
-                </CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Revision de solicitudes enviadas sin iniciar sesion.
-                </p>
+              <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileQuestion className="h-4 w-4 text-primary" />
+                    Solicitudes publicas
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Revision de solicitudes enviadas sin iniciar sesion. Se muestran 15 por pagina.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {publicRequestsQuery.isFetching && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                  <span>{publicRequests.length} registros</span>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="hidden">
                 {publicRequestsQuery.isFetching && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -771,11 +842,18 @@ export function LoansPage() {
                       <div>
                         <p className="font-semibold">{request.nombreCompleto}</p>
                         <p className="text-xs text-muted-foreground">{request.correoInstitucional}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatEnum(request.rolSolicitante)}
+                          {request.identificacion ? ` - ${request.identificacion}` : ""}
+                        </p>
                       </div>
                       <span className={getPublicRequestBadgeClass(request.estado)}>
                         {formatEnum(request.estado)}
                       </span>
                     </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {publicApplicantContext(request)}
+                    </p>
                     <p className="mt-2 font-medium text-[#10201a]">
                       {request.equipo
                         ? `${request.equipo.codigoInterno} - ${request.equipo.nombre}`
@@ -836,16 +914,158 @@ export function LoansPage() {
                   </p>
                 )}
               </CardContent>
+              <CardContent>
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full min-w-[1280px] text-sm">
+                    <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-3 text-left font-semibold">Codigo</th>
+                        <th className="px-3 py-3 text-left font-semibold">Solicitante</th>
+                        <th className="px-3 py-3 text-left font-semibold">Contexto</th>
+                        <th className="px-3 py-3 text-left font-semibold">Recurso</th>
+                        <th className="px-3 py-3 text-left font-semibold">Fechas</th>
+                        <th className="px-3 py-3 text-left font-semibold">Actividad / nota</th>
+                        <th className="px-3 py-3 text-left font-semibold">Estado</th>
+                        <th className="px-3 py-3 text-right font-semibold">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedPublicRequests.map((request) => (
+                        <tr key={request.id} className="border-t bg-white align-top">
+                          <td className="px-3 py-3 font-mono text-xs font-semibold">{request.codigoSolicitud}</td>
+                          <td className="px-3 py-3">
+                            <div className="font-medium">{request.nombreCompleto}</div>
+                            <div className="text-xs text-muted-foreground">{request.correoInstitucional}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {formatEnum(request.rolSolicitante)}
+                              {request.identificacion ? ` - ${request.identificacion}` : ""}
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-muted-foreground">
+                            {publicApplicantContext(request)}
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="font-medium">
+                              {request.equipo
+                                ? `${request.equipo.codigoInterno} - ${request.equipo.nombre}`
+                                : request.codigoRecurso}
+                            </div>
+                            {request.equipo && (
+                              <div className="text-xs text-muted-foreground">
+                                {request.equipo.cantidadDisponible} disponibles
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-xs text-muted-foreground">
+                            <div>{formatDateTime(request.fechaPrestamo)}</div>
+                            <div>{formatDateTime(request.fechaDevolucionEstimada)}</div>
+                            <div className="font-medium text-foreground">{request.diasPrestamo} dias</div>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="max-w-[260px] text-xs text-muted-foreground">
+                              {request.descripcionActividad}
+                            </div>
+                            <textarea
+                              className="textarea-control mt-2 min-h-16 text-xs"
+                              value={publicRequestNotes[request.id] ?? request.observacionesInternas ?? ""}
+                              onChange={(event) =>
+                                setPublicRequestNotes((current) => ({
+                                  ...current,
+                                  [request.id]: event.target.value
+                                }))
+                              }
+                              placeholder="Nota interna."
+                            />
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className={getPublicRequestBadgeClass(request.estado)}>
+                              {formatEnum(request.estado)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={pendingAction}
+                                onClick={() => updatePublicRequestStatus(request, "EN_REVISION")}
+                              >
+                                <Check className="h-4 w-4" />
+                                En revision
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={pendingAction}
+                                onClick={() => updatePublicRequestStatus(request, "CONVERTIDA")}
+                              >
+                                <MailIcon className="h-4 w-4" />
+                                Aprobar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={pendingAction}
+                                onClick={() => updatePublicRequestStatus(request, "RECHAZADA")}
+                              >
+                                <X className="h-4 w-4" />
+                                Rechazar
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!publicRequestsQuery.isFetching && !paginatedPublicRequests.length && (
+                        <tr>
+                          <td className="px-4 py-8 text-center text-muted-foreground" colSpan={8}>
+                            No hay solicitudes publicas pendientes.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Pagina {Math.min(publicRequestPage, publicRequestTotalPages)} de {publicRequestTotalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={publicRequestPage <= 1}
+                      onClick={() => setPublicRequestPage((current) => Math.max(1, current - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={publicRequestPage >= publicRequestTotalPages}
+                      onClick={() => setPublicRequestPage((current) => Math.min(publicRequestTotalPages, current + 1))}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
             </Card>
           )}
 
-          {hasPermission("prestamos:solicitar") && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Plus className="h-4 w-4 text-primary" />
-                  Nueva solicitud
-                </CardTitle>
+          {hasPermission("prestamos:solicitar") && loanFormOpen && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+              <Card className="w-full max-w-3xl">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="h-4 w-4 text-primary" />
+                    Nueva solicitud
+                  </CardTitle>
+                  <Button type="button" variant="ghost" size="icon" aria-label="Cerrar" onClick={() => setLoanFormOpen(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={handleCreate}>
@@ -918,12 +1138,26 @@ export function LoansPage() {
                         />
                       </Field>
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <Field label="Carrera">
-                          <input
-                            className="input-control"
-                            value={form.personaCarrera}
-                            onChange={(event) => updateForm("personaCarrera", event.target.value)}
-                          />
+                        <Field label={personAffiliationLabel(form.personaRol)}>
+                          {form.personaRol === "ADMINISTRATIVO" ? (
+                            <input
+                              className="input-control"
+                              value={form.personaCarrera}
+                              onChange={(event) => updateForm("personaCarrera", event.target.value)}
+                              placeholder="Ej. Laboratorios FCI, Decanatura, Soporte"
+                              required
+                            />
+                          ) : (
+                            <SearchableSelect
+                              options={form.personaRol === "PROFESOR" ? personFacultyOptions : personProgramOptions}
+                              value={form.personaCarrera}
+                              onChange={(value) => updateForm("personaCarrera", value)}
+                              placeholder={form.personaRol === "PROFESOR" ? "Seleccionar facultad" : "Seleccionar programa"}
+                              searchPlaceholder={form.personaRol === "PROFESOR" ? "Buscar facultad" : "Buscar programa"}
+                              emptyLabel="Seleccionar"
+                              required
+                            />
+                          )}
                         </Field>
                         <Field label="Semestre">
                           <input
@@ -1089,6 +1323,7 @@ export function LoansPage() {
                 </form>
               </CardContent>
             </Card>
+            </div>
           )}
 
           {selectedLoan && (
@@ -1444,6 +1679,19 @@ function getPublicRequestBadgeClass(state: EstadoSolicitudPublicaPrestamo) {
   return "badge badge-red";
 }
 
+function publicApplicantContext(request: PublicLoanRequest) {
+  if (request.rolSolicitante === "ESTUDIANTE") {
+    return [
+      request.programa ? `Programa: ${request.programa}` : "Programa sin registrar",
+      request.semestre ? `Semestre: ${request.semestre}` : "Semestre sin registrar"
+    ].join(" | ");
+  }
+  if (request.rolSolicitante === "PROFESOR") {
+    return request.materia ? `Materia: ${request.materia}` : "Materia sin registrar";
+  }
+  return request.dependencia ? `Dependencia: ${request.dependencia}` : "Dependencia sin registrar";
+}
+
 function getLoanRequesterName(loan: Loan) {
   return loan.personaSolicitante?.nombre ?? loan.usuarioSolicitante?.nombre ?? loan.solicitanteNombre ?? "Solicitante";
 }
@@ -1481,6 +1729,12 @@ function calculateLoanDays(startValue: string, endValue: string) {
     return 0;
   }
   return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function personAffiliationLabel(role: RolPersonaPrestamo) {
+  if (role === "PROFESOR") return "Facultad";
+  if (role === "ADMINISTRATIVO") return "Dependencia";
+  return "Programa / carrera";
 }
 
 function toDatetimeLocal(date: Date) {

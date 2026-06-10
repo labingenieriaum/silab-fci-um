@@ -9,7 +9,13 @@ export class CreateProjectDto {
 
   @Type(() => Number)
   @IsInt()
-  responsableId!: number;
+  @IsOptional()
+  responsableId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  responsablePersonaId?: number | null;
 
   @Type(() => Number)
   @IsInt()

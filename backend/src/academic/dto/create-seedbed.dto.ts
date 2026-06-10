@@ -8,7 +8,13 @@ export class CreateSeedbedDto {
 
   @Type(() => Number)
   @IsInt()
-  coordinadorId!: number;
+  @IsOptional()
+  coordinadorId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  coordinadorPersonaId?: number | null;
 
   @IsString()
   @MinLength(2)

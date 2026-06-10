@@ -27,4 +27,11 @@ export interface Programa {
   facultadId: number;
   nombre: string;
   codigo: string;
+  facultad?: Facultad;
+  _count?: {
+    usuarios: number;
+    materias: number;
+    proyectos: number;
+    actividades: number;
+  };
 }

@@ -25,6 +25,12 @@ export class LoansController {
   }
 
   @Public()
+  @Get("public/loan-programs")
+  findPublicLoanPrograms() {
+    return this.loansService.findPublicLoanPrograms();
+  }
+
+  @Public()
   @Post("public/loan-requests")
   createPublicLoanRequest(@Body() dto: CreatePublicLoanRequestDto) {
     return this.loansService.createPublicLoanRequest(dto);

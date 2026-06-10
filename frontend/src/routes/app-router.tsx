@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/components/layout/app-shell";
 import {
   ActivitiesPage,
+  ProgramsPage,
   ProjectsPage,
   SeedbedsPage,
   SubjectsPage
@@ -89,6 +90,10 @@ export const router = createBrowserRouter([
           {
             path: "faculties",
             element: <FacultiesPage />
+          },
+          {
+            path: "programs",
+            element: <ProgramsPage />
           },
           {
             path: "subjects",
