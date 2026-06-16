@@ -73,6 +73,16 @@ export class LoansController {
     return this.loansService.findLoanDeliveryAct(user, id);
   }
 
+  @Post("loans/:id/delivery-act/email")
+  @Permissions("prestamos:entregar")
+  sendLoanDeliveryActEmail(
+    @CurrentUser() user: JwtUser,
+    @Param("id", ParseIntPipe) id: number,
+    @Body() dto: SendReturnActEmailDto
+  ) {
+    return this.loansService.sendLoanDeliveryActEmail(user, id, dto);
+  }
+
   @Patch("loans/:id/approve")
   @Permissions("prestamos:aprobar")
   approveLoan(

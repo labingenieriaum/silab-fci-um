@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { getUserFacultyScope } from "../common/faculty-scope";
 import type { JwtUser } from "../common/types/jwt-user";
 import { PrismaService } from "../prisma/prisma.service";
-import { createInventoryReportPdf, createPdfDocument, createTableReportPdf, createXlsxWorkbook } from "./report-file.utils";
+import { createActPdf, createInventoryReportPdf, createTableReportPdf, createXlsxWorkbook } from "./report-file.utils";
 
 const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const pdfContentType = "application/pdf";
@@ -94,7 +94,8 @@ const loanReportSelect = {
     select: {
       tipo: true,
       firmanteNombre: true,
-      nombreArchivo: true
+      nombreArchivo: true,
+      contenidoBase64: true
     },
     orderBy: {
       id: "asc"
@@ -362,76 +363,85 @@ export class ReportsService {
 
   async loanActPdf(user: JwtUser, id: number) {
     const loan = await this.findLoanForAct(user, id);
+    const photos = loan.evidencias.filter((evidence) => evidence.tipo === "FOTO");
+    const signatures = loan.evidencias.filter((evidence) => evidence.tipo !== "FOTO");
     return {
       contentType: pdfContentType,
-      buffer: createPdfDocument({
-        title: "SILAB FCI - Acta de prestamo",
-        subtitle: `Prestamo ${loan.codigo}`,
-        sections: [
-          {
-            heading: "Datos generales",
-            lines: [
-              `Solicitante: ${requesterName(loan)}`,
-              `Documento: ${requesterDocument(loan)}`,
-              `Correo: ${requesterEmail(loan)}`,
-              `Estado: ${loan.estado}`,
-              `Uso: ${loan.tipoUso}`,
-              `Fecha solicitud: ${formatDate(loan.fechaSolicitud)}`,
-              `Fecha entrega: ${loan.fechaEntrega ? formatDate(loan.fechaEntrega) : "Sin entrega"}`,
-              `Devolucion estimada: ${formatDate(loan.fechaDevolucionEstimada)}`,
-              `Aprobado por: ${loan.aprobadoPor?.nombre ?? "Pendiente"}`,
-              `Entregado por: ${loan.entregadoPor?.nombre ?? "Pendiente"}`
-            ]
-          },
-          {
-            heading: "Equipos",
-            lines: loan.detalles.map(
-              (detail) =>
-                `${detail.equipo.codigoInterno} - ${detail.equipo.nombre} | Unidad: ${detail.equipoUnidad?.codigoInterno ?? "N/A"} | Entregado: ${detail.cantidadEntregada} | Estado entrega: ${detail.estadoEntrega ?? "N/A"}`
-            )
-          },
-          {
-            heading: "Firmas",
-            lines: deliveryEvidenceLines(loan)
-          }
-        ]
+      buffer: createActPdf({
+        reportCode: loan.codigo,
+        verificationUrl: this.createVerificationUrl(loan.codigo),
+        generatedAt: loan.fechaEntrega ?? new Date(),
+        faculty: this.resolveFacultyName(),
+        titleLine1: "Acta de",
+        titleLine2: "entrega",
+        meta: [
+          { label: "Solicitante", value: requesterName(loan) },
+          { label: "Correo solicitante", value: requesterEmail(loan) || "Sin correo" },
+          { label: "Documento", value: requesterDocument(loan) || "Sin documento" },
+          { label: "Entregado por", value: loan.entregadoPor?.nombre ?? "Pendiente" },
+          { label: "Fecha requerida", value: formatDate(loan.fechaSolicitud) },
+          { label: "Devolucion estimada", value: formatDate(loan.fechaDevolucionEstimada) },
+          { label: "Uso", value: loan.tipoUso },
+          { label: "Estado", value: loan.estado }
+        ],
+        itemsHeading: "Equipos entregados",
+        items: loan.detalles.map((detail) => ({
+          equipo: detail.equipo.nombre,
+          codigo: detail.equipo.codigoInterno,
+          unidad: detail.equipoUnidad?.codigoInterno ?? "N/A",
+          cantidad: detail.cantidadEntregada || detail.cantidadAprobada || detail.cantidadSolicitada,
+          condicion: detail.estadoEntrega ?? "N/A"
+        })),
+        observations: loan.observaciones?.trim() || "No hubo comentarios.",
+        photoCount: photos.length,
+        signatures: signatures.map((signature) => ({
+          label: signatureLabel(signature.tipo),
+          name: signature.firmanteNombre ?? "Firmante registrado",
+          dataUrl: signature.contenidoBase64
+        }))
       })
     };
   }
 
   async returnActPdf(user: JwtUser, id: number) {
     const returnRecord = await this.findReturnForAct(user, id);
+    const photos = returnRecord.evidencias.filter((evidence) => evidence.tipo === "FOTO");
+    const signatures = returnRecord.evidencias.filter((evidence) => evidence.tipo !== "FOTO");
+    const reportCode = `DEV-${returnRecord.id}-${returnRecord.prestamo.codigo}`;
     return {
       contentType: pdfContentType,
-      buffer: createPdfDocument({
-        title: "SILAB FCI - Acta de devolucion",
-        subtitle: `Devolucion #${returnRecord.id} - Prestamo ${returnRecord.prestamo.codigo}`,
-        sections: [
-          {
-            heading: "Datos generales",
-            lines: [
-              `Solicitante: ${requesterName(returnRecord.prestamo)}`,
-              `Recibido por: ${returnRecord.usuarioRecibe.nombre}`,
-              `Fecha devolucion: ${formatDate(returnRecord.fechaDevolucion)}`,
-              `Estado prestamo: ${returnRecord.prestamo.estado}`,
-              `Observaciones: ${returnRecord.observaciones ?? "Sin observaciones"}`
-            ]
-          },
-          {
-            heading: "Equipos devueltos",
-            lines: returnRecord.detalles.map(
-              (detail) =>
-                `${detail.equipo.codigoInterno} - ${detail.equipo.nombre} | Unidad: ${detail.equipoUnidad?.codigoInterno ?? "N/A"} | Cantidad: ${detail.cantidad} | Condicion: ${detail.estadoDevolucion}`
-            )
-          },
-          {
-            heading: "Firmas",
-            lines: [
-              "Recibe laboratorio: ______________________",
-              "Entrega usuario: _________________________"
-            ]
-          }
-        ]
+      buffer: createActPdf({
+        reportCode,
+        verificationUrl: this.createVerificationUrl(reportCode),
+        generatedAt: returnRecord.fechaDevolucion,
+        faculty: this.resolveFacultyName(),
+        titleLine1: "Acta de",
+        titleLine2: "devolucion",
+        meta: [
+          { label: "Solicitante", value: requesterName(returnRecord.prestamo) },
+          { label: "Correo solicitante", value: requesterEmail(returnRecord.prestamo) || "Sin correo" },
+          { label: "Documento", value: requesterDocument(returnRecord.prestamo) || "Sin documento" },
+          { label: "Recibido por", value: returnRecord.usuarioRecibe.nombre },
+          { label: "Fecha devolucion", value: formatDate(returnRecord.fechaDevolucion) },
+          { label: "Prestamo", value: returnRecord.prestamo.codigo },
+          { label: "Estado prestamo", value: returnRecord.prestamo.estado },
+          { label: "Acta", value: `Devolucion #${returnRecord.id}` }
+        ],
+        itemsHeading: "Equipos devueltos",
+        items: returnRecord.detalles.map((detail) => ({
+          equipo: detail.equipo.nombre,
+          codigo: detail.equipo.codigoInterno,
+          unidad: detail.equipoUnidad?.codigoInterno ?? "N/A",
+          cantidad: detail.cantidad,
+          condicion: detail.estadoDevolucion
+        })),
+        observations: returnRecord.observaciones?.trim() || "No hubo comentarios.",
+        photoCount: photos.length,
+        signatures: signatures.map((signature) => ({
+          label: signatureLabel(signature.tipo),
+          name: signature.firmanteNombre ?? "Firmante registrado",
+          dataUrl: signature.contenidoBase64
+        }))
       })
     };
   }
@@ -575,6 +585,17 @@ export class ReportsService {
               }
             }
           }
+        },
+        evidencias: {
+          select: {
+            tipo: true,
+            firmanteNombre: true,
+            nombreArchivo: true,
+            contenidoBase64: true
+          },
+          orderBy: {
+            id: "asc"
+          }
         }
       }
     });
@@ -689,28 +710,16 @@ function requesterDocument(loan: {
   return loan.personaSolicitante?.codigo ?? loan.usuarioSolicitante?.documento ?? loan.solicitanteDocumento ?? "";
 }
 
-function deliveryEvidenceLines(loan: {
-  evidencias?: Array<{
-    tipo: string;
-    firmanteNombre?: string | null;
-    nombreArchivo?: string | null;
-  }>;
-}) {
-  const evidencias = loan.evidencias ?? [];
-  const photos = evidencias.filter((evidence) => evidence.tipo === "FOTO");
-  const signatures = evidencias.filter((evidence) => evidence.tipo !== "FOTO");
-
-  if (!evidencias.length) {
-    return [
-      "Entrega: ________________________________",
-      "Recibe: _________________________________"
-    ];
+function signatureLabel(type: string) {
+  const normalized = type.toUpperCase();
+  if (normalized.includes("COORDINADOR")) {
+    return "Firma coordinacion";
   }
-
-  return [
-    `Fotos registradas: ${photos.length}`,
-    ...signatures.map(
-      (signature) => `${signature.tipo}: ${signature.firmanteNombre ?? "Firmante registrado"}`
-    )
-  ];
+  if (normalized.includes("ADMIN")) {
+    return "Firma quien recibe";
+  }
+  if (normalized.includes("SOLICITANTE")) {
+    return "Firma solicitante";
+  }
+  return "Firma registrada";
 }

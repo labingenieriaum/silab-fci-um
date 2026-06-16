@@ -15,7 +15,13 @@ import {
 export class SubjectProfessorInputDto {
   @Type(() => Number)
   @IsInt()
-  profesorId!: number;
+  @IsOptional()
+  profesorId?: number | null;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  profesorPersonaId?: number | null;
 
   @IsString()
   @MinLength(1)

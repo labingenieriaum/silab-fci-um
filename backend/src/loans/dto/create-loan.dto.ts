@@ -126,6 +126,11 @@ export class CreateLoanDto {
   @IsOptional()
   actividadId?: number | null;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  semilleroId?: number | null;
+
   @IsString()
   @IsOptional()
   observaciones?: string | null;

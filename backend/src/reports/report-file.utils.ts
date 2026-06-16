@@ -73,6 +73,34 @@ export interface TableReportPdfInput<T> {
   columns: TableReportPdfColumn<T>[];
 }
 
+export interface ActPdfInput {
+  reportCode: string;
+  verificationUrl: string;
+  generatedAt: Date;
+  faculty: string;
+  titleLine1: string;
+  titleLine2: string;
+  meta: Array<{
+    label: string;
+    value: string;
+  }>;
+  itemsHeading: string;
+  items: Array<{
+    equipo: string;
+    codigo: string;
+    unidad: string;
+    cantidad: string | number;
+    condicion: string;
+  }>;
+  observations: string;
+  photoCount: number;
+  signatures: Array<{
+    label: string;
+    name: string;
+    dataUrl?: string | null;
+  }>;
+}
+
 interface ReportHeaderInput {
   reportCode: string;
   faculty: string;
@@ -278,6 +306,182 @@ export function createTableReportPdf<T>(input: TableReportPdfInput<T>) {
 
   objects[1] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageObjectIds.length} >>`;
   return createPdfBuffer(objects);
+}
+
+export function createActPdf(input: ActPdfInput) {
+  const objects: string[] = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"];
+  const logoImage = loadReportLogo();
+  const xObjects: string[] = [];
+  let logoObjectId: number | undefined;
+
+  if (logoImage) {
+    logoObjectId = objects.length + 1;
+    const maskObjectId = logoImage.alpha ? objects.length + 2 : undefined;
+    objects.push(createPdfImageObject(logoImage, maskObjectId));
+    if (logoImage.alpha) {
+      objects.push(createPdfAlphaMaskObject(logoImage));
+    }
+    xObjects.push(`/Logo ${logoObjectId} 0 R`);
+  }
+
+  const signatureImages = input.signatures
+    .map((signature, index) => ({
+      index,
+      image: parseDataUrlPng(signature.dataUrl)
+    }))
+    .filter((entry): entry is { index: number; image: PdfPngImage } => Boolean(entry.image));
+
+  for (const signature of signatureImages) {
+    const imageObjectId = objects.length + 1;
+    const maskObjectId = signature.image.alpha ? objects.length + 2 : undefined;
+    objects.push(createPdfImageObject(signature.image, maskObjectId));
+    if (signature.image.alpha) {
+      objects.push(createPdfAlphaMaskObject(signature.image));
+    }
+    xObjects.push(`/Sig${signature.index} ${imageObjectId} 0 R`);
+  }
+
+  const content = createActPageContent(input, Boolean(logoObjectId), new Set(signatureImages.map((entry) => entry.index)));
+  const pageId = objects.length + 1;
+  const contentId = pageId + 1;
+  const xObjectResources = xObjects.length ? ` /XObject << ${xObjects.join(" ")} >>` : "";
+  objects.push(
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xObjectResources} >> /Contents ${contentId} 0 R >>`
+  );
+  objects.push(`<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`);
+  objects[1] = `<< /Type /Pages /Kids [${pageId} 0 R] /Count 1 >>`;
+
+  return createPdfBuffer(objects);
+}
+
+function createActPageContent(input: ActPdfInput, logoAvailable: boolean, drawableSignatureIndexes: Set<number>) {
+  const commands: string[] = [];
+  drawReportHeader(commands, input, 1, 1, true, logoAvailable);
+
+  drawActMeta(commands, input);
+  drawActItems(commands, input);
+  drawActObservations(commands, input);
+  drawActPhotos(commands, input);
+  drawActSignatures(commands, input, drawableSignatureIndexes);
+  drawInventoryFooter(commands, input.reportCode, input.verificationUrl, 1, 1);
+
+  return commands.join("\n");
+}
+
+function drawActMeta(commands: string[], input: ActPdfInput) {
+  const x = 40;
+  const y = 540;
+  const gap = 9;
+  const width = 252;
+  const height = 44;
+  input.meta.slice(0, 8).forEach((item, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const cellX = x + column * (width + gap);
+    const cellY = y - row * 54;
+    rect(commands, cellX, cellY, width, height, "#ffffff", "#d3dbd7", 0.6);
+    text(commands, item.label.toUpperCase(), cellX + 8, cellY + 29, 7, true, "#596674", width - 16);
+    textLines(commands, item.value || "Sin dato", cellX + 8, cellY + 15, 8.5, true, "#10201a", width - 16, 10, 2);
+  });
+}
+
+function drawActItems(commands: string[], input: ActPdfInput) {
+  const y = 314;
+  text(commands, input.itemsHeading.toUpperCase(), 40, y + 32, 10, true, "#596674", 220);
+  rect(commands, 40, y - 1, 515, 25, "#eef0f3", "#d3dbd7", 0.5);
+  const headers = [
+    ["Equipo", 48, 8, 174],
+    ["Unidad", 229, 8, 74],
+    ["Cantidad", 318, 8, 65],
+    ["Condicion", 418, 8, 94]
+  ] as const;
+  headers.forEach(([label, x, offsetY, width]) => text(commands, label.toUpperCase(), x, y + offsetY, 7, true, "#596674", width));
+
+  const visibleItems = input.items.slice(0, 3);
+  if (!visibleItems.length) {
+    rect(commands, 40, y - 29, 515, 30, "#ffffff", "#d3dbd7", 0.5);
+    text(commands, "Sin equipos registrados en el acta.", 48, y - 11, 8, false, "#596674", 240);
+    return;
+  }
+
+  visibleItems.forEach((item, index) => {
+    const rowY = y - 30 - index * 34;
+    rect(commands, 40, rowY, 515, 34, "#ffffff", "#edf1ee", 0.35);
+    textLines(commands, item.equipo, 48, rowY + 20, 8, true, "#10201a", 165, 9, 1);
+    text(commands, item.codigo, 48, rowY + 7, 7, false, "#596674", 130);
+    textLines(commands, item.unidad, 229, rowY + 15, 8, false, "#10201a", 74, 9, 2);
+    text(commands, String(item.cantidad), 318, rowY + 14, 8.5, false, "#10201a", 65);
+    textLines(commands, item.condicion, 418, rowY + 15, 8, false, "#10201a", 94, 9, 2);
+  });
+
+  if (input.items.length > visibleItems.length) {
+    text(commands, `+ ${input.items.length - visibleItems.length} equipos adicionales`, 48, y - 116, 7, true, "#596674", 180);
+  }
+}
+
+function drawActObservations(commands: string[], input: ActPdfInput) {
+  const y = 170;
+  text(commands, "OBSERVACIONES", 40, y + 48, 10, true, "#596674", 150);
+  rect(commands, 40, y, 515, 36, "#ffffff", "#d3dbd7", 0.6);
+  textLines(commands, input.observations.trim() || "No hubo comentarios.", 48, y + 21, 8, false, "#10201a", 498, 10, 2);
+}
+
+function drawActPhotos(commands: string[], input: ActPdfInput) {
+  const y = 118;
+  text(commands, "FOTOS", 40, y + 34, 10, true, "#596674", 70);
+  rect(commands, 40, y, 248, 24, "#ffffff", "#d3dbd7", 0.6);
+  text(
+    commands,
+    input.photoCount > 0 ? `Fotos registradas: ${input.photoCount}` : "Sin fotos subidas.",
+    48,
+    y + 8,
+    8,
+    false,
+    "#596674",
+    220
+  );
+}
+
+function drawActSignatures(commands: string[], input: ActPdfInput, drawableSignatureIndexes: Set<number>) {
+  const signatures = input.signatures.filter((signature) => signature.label && signature.name).slice(0, 3);
+  const y = 70;
+  text(commands, "FIRMAS", 307, 152, 10, true, "#596674", 70);
+
+  if (!signatures.length) {
+    rect(commands, 307, 118, 248, 24, "#ffffff", "#d3dbd7", 0.6);
+    text(commands, "No hay firmas registradas.", 315, 126, 8, false, "#596674", 210);
+    return;
+  }
+
+  const cardWidth = signatures.length === 1 ? 248 : signatures.length === 2 ? 119 : 78;
+  const gap = signatures.length === 1 ? 0 : 10;
+  signatures.forEach((signature, localIndex) => {
+    const originalIndex = input.signatures.indexOf(signature);
+    const x = 307 + localIndex * (cardWidth + gap);
+    rect(commands, x, y, cardWidth, 70, "#ffffff", "#d3dbd7", 0.6);
+    if (drawableSignatureIndexes.has(originalIndex)) {
+      drawImage(commands, `Sig${originalIndex}`, x + 7, y + 26, cardWidth - 14, 34);
+    } else {
+      line(commands, x + 12, y + 40, x + cardWidth - 12, y + 40, "#9aa5b1", 0.7);
+    }
+    textLines(commands, signature.name, x + 7, y + 15, 7, true, "#10201a", cardWidth - 14, 8, 1);
+    textLines(commands, signature.label, x + 7, y + 6, 6.2, false, "#596674", cardWidth - 14, 7, 1);
+  });
+}
+
+function parseDataUrlPng(dataUrl?: string | null) {
+  if (!dataUrl) {
+    return null;
+  }
+  const match = /^data:image\/png;base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) {
+    return null;
+  }
+  try {
+    return parsePng(Buffer.from(match[1], "base64"));
+  } catch {
+    return null;
+  }
 }
 
 function summarizeInventoryRows(rows: InventoryPdfRow[]) {

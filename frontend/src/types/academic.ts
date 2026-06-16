@@ -21,6 +21,7 @@ export type TipoActividad =
 export type TipoUsuarioAcademico =
   | "ADMINISTRADOR"
   | "COORDINACION_LABORATORIOS"
+  | "PRACTICANTE"
   | "DECANO"
   | "DIRECTOR_PROGRAMA"
   | "PROFESOR"
@@ -39,11 +40,13 @@ export interface AcademicUser {
 export interface SubjectProfessor {
   id: number;
   materiaId: number;
-  profesorId: number;
+  profesorId: number | null;
+  profesorPersonaId: number | null;
   grupo: string;
   periodo: string | null;
   activo: boolean;
-  profesor: Pick<AcademicUser, "id" | "nombre" | "correo" | "tipoUsuario">;
+  profesor: Pick<AcademicUser, "id" | "nombre" | "correo" | "tipoUsuario"> | null;
+  profesorPersona: Pick<LoanPerson, "id" | "codigo" | "nombre" | "correoInstitucional" | "rol"> | null;
 }
 
 export interface Subject {

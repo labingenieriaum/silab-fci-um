@@ -37,7 +37,7 @@ import type { Facultad, Programa } from "@/types/catalogs";
 import type { LoanPerson } from "@/types/people";
 
 interface SubjectProfessorForm {
-  profesorId: string;
+  profesorRef: string;
   grupo: string;
   periodo: string;
 }
@@ -225,14 +225,24 @@ function useAcademicLookups() {
       description: user.correo,
       searchText: `${user.nombre} ${user.correo} ${user.tipoUsuario}`
     })),
-    professorOptions: users
-      .filter((user) => user.tipoUsuario === "PROFESOR")
-      .map((user) => ({
-        value: String(user.id),
-        label: user.nombre,
-        description: user.correo,
-        searchText: `${user.nombre} ${user.correo}`
-      })),
+    professorOptions: [
+      ...users
+        .filter((user) => user.tipoUsuario === "PROFESOR")
+        .map((user) => ({
+          value: encodeResponsible("usuario", user.id),
+          label: user.nombre,
+          description: `Usuario del sistema - ${user.correo}`,
+          searchText: `${user.nombre} ${user.correo} profesor docente`
+        })),
+      ...people
+        .filter((person) => person.rol === "PROFESOR")
+        .map((person) => ({
+          value: encodeResponsible("persona", person.id),
+          label: person.nombre,
+          description: `Persona - ${person.codigo}${person.correoInstitucional ? ` - ${person.correoInstitucional}` : ""}`,
+          searchText: `${person.codigo} ${person.nombre} ${person.correoInstitucional ?? ""} ${person.carrera ?? ""} profesor docente`
+        }))
+    ],
     seedbedOptions: seedbeds.map((seedbed) => ({
       value: String(seedbed.id),
       label: `${seedbed.codigo} - ${seedbed.nombre}`,
@@ -421,12 +431,16 @@ export function SubjectsPage() {
           nombre: payload.nombre,
           semestre: payload.semestre ? Number(payload.semestre) : null,
           profesores: payload.profesores
-            .filter((professor) => professor.profesorId)
-            .map((professor) => ({
-              profesorId: Number(professor.profesorId),
-              grupo: professor.grupo || "GENERAL",
-              periodo: professor.periodo || undefined
-            }))
+            .filter((professor) => professor.profesorRef)
+            .map((professor) => {
+              const decoded = decodeProfessorValue(professor.profesorRef);
+              return {
+                profesorId: decoded.profesorId ? Number(decoded.profesorId) : undefined,
+                profesorPersonaId: decoded.profesorPersonaId ? Number(decoded.profesorPersonaId) : undefined,
+                grupo: professor.grupo || "GENERAL",
+                periodo: professor.periodo || undefined
+              };
+            })
         })
       }),
     onSuccess: async () => {
@@ -460,7 +474,7 @@ export function SubjectsPage() {
       nombre: subject.nombre,
       semestre: subject.semestre ? String(subject.semestre) : "",
       profesores: subject.profesores.map((professor) => ({
-        profesorId: String(professor.profesorId),
+        profesorRef: professorValue(professor.profesorId, professor.profesorPersonaId),
         grupo: professor.grupo,
         periodo: professor.periodo ?? ""
       }))
@@ -510,7 +524,7 @@ export function SubjectsPage() {
                       {subject.profesores.length
                         ? subject.profesores.map((professor) => (
                             <div key={professor.id}>
-                              {professor.profesor.nombre} / {professor.grupo}
+                              {subjectProfessorName(professor)} / {professor.grupo}
                             </div>
                           ))
                         : "Sin profesores"}
@@ -601,7 +615,7 @@ export function SubjectsPage() {
                   onClick={() =>
                     setForm((current) => ({
                       ...current,
-                      profesores: [...current.profesores, { profesorId: "", grupo: "GENERAL", periodo: "DIURNO" }]
+                      profesores: [...current.profesores, { profesorRef: "", grupo: "GENERAL", periodo: "DIURNO" }]
                     }))
                   }
                 >
@@ -613,9 +627,10 @@ export function SubjectsPage() {
                 <div key={index} className="grid gap-2 sm:grid-cols-[1fr_110px_110px_40px]">
                   <SearchableSelect
                     options={lookups.professorOptions}
-                    value={professor.profesorId}
-                    onChange={(value) => updateSubjectProfessor(setForm, index, "profesorId", value)}
+                    value={professor.profesorRef}
+                    onChange={(value) => updateSubjectProfessor(setForm, index, "profesorRef", value)}
                     placeholder="Profesor"
+                    searchPlaceholder="Buscar por nombre, codigo o correo"
                     disabled={!canManage}
                   />
                   <input
@@ -1394,6 +1409,24 @@ function responsibleValue(userId: string, personId: string) {
   return "";
 }
 
+function professorValue(userId: number | null | undefined, personId: number | null | undefined) {
+  if (userId) {
+    return encodeResponsible("usuario", userId);
+  }
+  if (personId) {
+    return encodeResponsible("persona", personId);
+  }
+  return "";
+}
+
+function decodeProfessorValue(value: string) {
+  const [kind, rawId] = value.split(":");
+  return {
+    profesorId: kind === "usuario" ? rawId ?? "" : "",
+    profesorPersonaId: kind === "persona" ? rawId ?? "" : ""
+  };
+}
+
 function decodeResponsibleValue(value: string, field: "coordinador" | "responsable") {
   const [kind, rawId] = value.split(":");
   const userId = kind === "usuario" ? rawId ?? "" : "";
@@ -1410,6 +1443,10 @@ function decodeResponsibleValue(value: string, field: "coordinador" | "responsab
     responsableId: userId,
     responsablePersonaId: personId
   };
+}
+
+function subjectProfessorName(professor: Subject["profesores"][number]) {
+  return professor.profesor?.nombre ?? professor.profesorPersona?.nombre ?? "Profesor";
 }
 
 function academicResponsibleName(

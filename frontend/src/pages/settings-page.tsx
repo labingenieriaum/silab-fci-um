@@ -18,7 +18,7 @@ interface EmailSettings {
   fromName: string;
 }
 
-type TemplateKey = "returnAct" | "loanDueSoon" | "publicLoanApproved";
+type TemplateKey = "deliveryAct" | "returnAct" | "loanDueSoon" | "publicLoanApproved";
 
 type EmailTemplates = Record<TemplateKey, { subject: string; body: string }>;
 
@@ -91,6 +91,10 @@ export function SettingsPage() {
       return;
     }
     saveTemplatesMutation.mutate({
+      deliveryAct: {
+        subject: String(form.get("deliveryAct.subject") ?? ""),
+        body: String(form.get("deliveryAct.body") ?? "")
+      },
       returnAct: {
         subject: String(form.get("returnAct.subject") ?? ""),
         body: String(form.get("returnAct.body") ?? "")
@@ -202,6 +206,7 @@ export function SettingsPage() {
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
           ) : (
             <form className="space-y-5" onSubmit={handleTemplatesSubmit}>
+              <TemplateFields title="Acta de entrega" name="deliveryAct" template={templates.deliveryAct} />
               <TemplateFields title="Acta de devolucion" name="returnAct" template={templates.returnAct} />
               <TemplateFields title="Prestamo por vencer" name="loanDueSoon" template={templates.loanDueSoon} />
               <TemplateFields title="Solicitud publica aprobada" name="publicLoanApproved" template={templates.publicLoanApproved} />

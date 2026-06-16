@@ -4,6 +4,7 @@ build/
 coverage/
 .env
 .env.local
+.env.production
 .env.*.local
 npm-debug.log*
 yarn-debug.log*

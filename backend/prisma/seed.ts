@@ -8,6 +8,7 @@ const prisma = new PrismaClient(createPrismaClientOptions());
 const roles = [
   ["ADMINISTRADOR", "Acceso total al sistema."],
   ["COORDINACION_LABORATORIOS", "Gestion operativa de laboratorios e inventario."],
+  ["PRACTICANTE", "Apoyo operativo de laboratorios con permisos equivalentes a coordinacion."],
   ["DECANO", "Consulta estrategica de facultad y reportes ejecutivos."],
   ["DIRECTOR_PROGRAMA", "Consulta y seguimiento por programa academico."],
   ["PROFESOR", "Solicitud y seguimiento de prestamos academicos."],
@@ -33,6 +34,18 @@ const permisos = [
 const permisosPorRol: Record<string, string[]> = {
   ADMINISTRADOR: permisos,
   COORDINACION_LABORATORIOS: [
+    "academia:gestionar",
+    "laboratorios:gestionar",
+    "inventario:gestionar",
+    "prestamos:aprobar",
+    "prestamos:entregar",
+    "devoluciones:registrar",
+    "mantenimiento:gestionar",
+    "reportes:ver",
+    "dashboard:ver",
+    "auditoria:ver"
+  ],
+  PRACTICANTE: [
     "academia:gestionar",
     "laboratorios:gestionar",
     "inventario:gestionar",

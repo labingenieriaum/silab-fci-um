@@ -58,6 +58,7 @@ interface PublicLoanRequestForm {
   dependencia: string;
   equipoId: string;
   recursoSolicitado: string;
+  cantidadSolicitada: string;
   fechaPrestamo: string;
   fechaDevolucionEstimada: string;
   descripcionActividad: string;
@@ -82,6 +83,7 @@ const initialForm: PublicLoanRequestForm = {
   dependencia: "",
   equipoId: "",
   recursoSolicitado: "",
+  cantidadSolicitada: "1",
   fechaPrestamo: todayDateValue(),
   fechaDevolucionEstimada: todayDateValue(),
   descripcionActividad: ""
@@ -194,7 +196,8 @@ export function PublicLoanRequestPage() {
     setForm((current) => ({
       ...current,
       equipoId: String(resource.id),
-      recursoSolicitado: ""
+      recursoSolicitado: "",
+      cantidadSolicitada: resource.requiereSerial ? "1" : current.cantidadSolicitada
     }));
     setResourceSearch(resourceLabel(resource));
     setCustomResourceMode(false);
@@ -249,6 +252,10 @@ export function PublicLoanRequestPage() {
       setFeedback("La fecha de devolucion debe ser igual o posterior a la fecha de prestamo.");
       return;
     }
+    if (!selectedResource?.requiereSerial && Number(form.cantidadSolicitada || 0) < 1) {
+      setFeedback("Indica al menos una unidad solicitada.");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -264,6 +271,7 @@ export function PublicLoanRequestPage() {
           materia: form.rolSolicitante === "PROFESOR" ? form.materia : undefined,
           dependencia: form.rolSolicitante === "ADMINISTRATIVO" ? form.dependencia : undefined,
           equipoId: form.equipoId ? Number(form.equipoId) : undefined,
+          cantidadSolicitada: selectedResource?.requiereSerial ? 1 : Number(form.cantidadSolicitada || 1),
           codigo: form.equipoId ? selectedResource?.codigoInterno : form.recursoSolicitado,
           fechaPrestamo: form.fechaPrestamo,
           fechaDevolucionEstimada: form.fechaDevolucionEstimada,
@@ -530,6 +538,26 @@ export function PublicLoanRequestPage() {
               </p>
             </div>
           )}
+
+          <div className="mt-4 max-w-xs">
+            <PublicField label="Cantidad solicitada" icon={<Hash className="h-4 w-4" />}>
+              <input
+                className="input-control pl-10"
+                type="number"
+                min="1"
+                max={selectedResource?.cantidadDisponible}
+                value={selectedResource?.requiereSerial ? "1" : form.cantidadSolicitada}
+                onChange={(event) => updateForm("cantidadSolicitada", event.target.value)}
+                disabled={Boolean(selectedResource?.requiereSerial)}
+                required
+              />
+            </PublicField>
+            {selectedResource?.requiereSerial && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Los equipos con serial se solicitan por unidad.
+              </p>
+            )}
+          </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_150px]">
             <PublicField label="Fecha de prestamo" icon={<CalendarDays className="h-4 w-4" />}>

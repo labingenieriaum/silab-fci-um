@@ -66,6 +66,7 @@ const subjectProfessorSelect = {
   id: true,
   materiaId: true,
   profesorId: true,
+  profesorPersonaId: true,
   grupo: true,
   periodo: true,
   activo: true,
@@ -75,6 +76,15 @@ const subjectProfessorSelect = {
       nombre: true,
       correo: true,
       tipoUsuario: true
+    }
+  },
+  profesorPersona: {
+    select: {
+      id: true,
+      codigo: true,
+      nombre: true,
+      correoInstitucional: true,
+      rol: true
     }
   }
 } satisfies Prisma.MateriaProfesorSelect;
@@ -468,7 +478,10 @@ export class AcademicService {
               profesores: {
                 some: {
                   deletedAt: null,
-                  profesor: { nombre: { contains: query.search, mode: "insensitive" } }
+                  OR: [
+                    { profesor: { nombre: { contains: query.search, mode: "insensitive" } } },
+                    { profesorPersona: { nombre: { contains: query.search, mode: "insensitive" } } }
+                  ]
                 }
               }
             }
@@ -1155,13 +1168,54 @@ export class AcademicService {
     professors: SubjectProfessorInputDto[],
     facultyId: number
   ) {
-    const professorIds = Array.from(new Set(professors.map((professor) => professor.profesorId)));
+    for (const professor of professors) {
+      ensureOnlyOneResponsible(
+        professor.profesorId,
+        professor.profesorPersonaId,
+        "Selecciona un usuario profesor o una persona profesor, no ambos."
+      );
+      if (!professor.profesorId && !professor.profesorPersonaId) {
+        throw new BadRequestException("Selecciona el profesor de la materia.");
+      }
+    }
+
+    const professorIds = Array.from(
+      new Set(
+        professors
+          .map((professor) => professor.profesorId)
+          .filter((professorId): professorId is number => typeof professorId === "number")
+      )
+    );
     for (const professorId of professorIds) {
       await this.ensureUserInFaculty(
         professorId,
         facultyId,
         "Uno de los profesores no pertenece a la facultad del programa."
       );
+    }
+
+    const professorPersonIds = Array.from(
+      new Set(
+        professors
+          .map((professor) => professor.profesorPersonaId)
+          .filter((professorPersonId): professorPersonId is number => typeof professorPersonId === "number")
+      )
+    );
+    for (const professorPersonId of professorPersonIds) {
+      const person = await this.prisma.personaPrestamo.findFirst({
+        where: {
+          id: professorPersonId,
+          deletedAt: null,
+          activo: true,
+          rol: "PROFESOR"
+        },
+        select: {
+          id: true
+        }
+      });
+      if (!person) {
+        throw new BadRequestException("Uno de los profesores no existe en Personas o no tiene rol profesor.");
+      }
     }
   }
 
@@ -1201,27 +1255,38 @@ export class AcademicService {
 
     for (const professor of professors) {
       const group = cleanGroup(professor.grupo);
-      await tx.materiaProfesor.upsert({
+      const current = await tx.materiaProfesor.findFirst({
         where: {
-          materiaId_profesorId_grupo: {
-            materiaId: subjectId,
-            profesorId: professor.profesorId,
-            grupo: group
-          }
-        },
-        update: {
-          periodo: cleanNullableText(professor.periodo),
-          activo: professor.activo ?? true,
-          deletedAt: null
-        },
-        create: {
           materiaId: subjectId,
-          profesorId: professor.profesorId,
-          grupo: group,
-          periodo: cleanNullableText(professor.periodo),
-          activo: professor.activo ?? true
+          profesorId: professor.profesorId ?? null,
+          profesorPersonaId: professor.profesorPersonaId ?? null,
+          grupo: group
+        },
+        select: {
+          id: true
         }
       });
+      const data = {
+        profesorId: professor.profesorId ?? null,
+        profesorPersonaId: professor.profesorPersonaId ?? null,
+        grupo: group,
+        periodo: cleanNullableText(professor.periodo),
+        activo: professor.activo ?? true,
+        deletedAt: null
+      };
+      if (current) {
+        await tx.materiaProfesor.update({
+          where: { id: current.id },
+          data
+        });
+      } else {
+        await tx.materiaProfesor.create({
+          data: {
+            materiaId: subjectId,
+            ...data
+          }
+        });
+      }
     }
   }
 

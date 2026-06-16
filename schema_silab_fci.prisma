@@ -9,6 +9,7 @@ datasource db {
 enum TipoUsuario {
   ADMINISTRADOR
   COORDINACION_LABORATORIOS
+  PRACTICANTE
   DECANO
   DIRECTOR_PROGRAMA
   PROFESOR
@@ -299,6 +300,7 @@ model PersonaPrestamo {
   semillerosCoordinados  Semillero[]        @relation("PersonaCoordinadorSemillero")
   proyectosResponsable   Proyecto[]         @relation("PersonaResponsableProyecto")
   actividadesResponsable Actividad[]        @relation("PersonaResponsableActividad")
+  materiasProfesor       MateriaProfesor[]  @relation("PersonaProfesorMateria")
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
   deletedAt              DateTime?          @map("deleted_at")
@@ -479,24 +481,28 @@ model Materia {
 }
 
 model MateriaProfesor {
-  id         Int     @id @default(autoincrement())
-  materiaId  Int     @map("materia_id")
-  profesorId Int     @map("profesor_id")
-  grupo      String  @default("GENERAL")
-  periodo    String?
-  activo     Boolean @default(true)
+  id                Int     @id @default(autoincrement())
+  materiaId         Int     @map("materia_id")
+  profesorId        Int?    @map("profesor_id")
+  profesorPersonaId Int?    @map("profesor_persona_id")
+  grupo             String  @default("GENERAL")
+  periodo           String?
+  activo            Boolean @default(true)
 
-  materia   Materia    @relation(fields: [materiaId], references: [id])
-  profesor  Usuario    @relation("UsuarioProfesorMateria", fields: [profesorId], references: [id])
-  prestamos Prestamo[]
+  materia         Materia          @relation(fields: [materiaId], references: [id])
+  profesor        Usuario?         @relation("UsuarioProfesorMateria", fields: [profesorId], references: [id])
+  profesorPersona PersonaPrestamo? @relation("PersonaProfesorMateria", fields: [profesorPersonaId], references: [id])
+  prestamos       Prestamo[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
   @@unique([materiaId, profesorId, grupo])
+  @@unique([materiaId, profesorPersonaId, grupo])
   @@index([materiaId])
   @@index([profesorId])
+  @@index([profesorPersonaId])
   @@index([activo])
   @@map("materias_profesores")
 }
@@ -516,6 +522,7 @@ model Semillero {
   coordinadorPersona PersonaPrestamo? @relation("PersonaCoordinadorSemillero", fields: [coordinadorPersonaId], references: [id])
   proyectos          Proyecto[]
   actividades        Actividad[]
+  prestamos          Prestamo[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -601,6 +608,7 @@ model Prestamo {
   materiaProfesorId       Int?           @map("materia_profesor_id")
   proyectoId              Int?           @map("proyecto_id")
   actividadId             Int?           @map("actividad_id")
+  semilleroId             Int?           @map("semillero_id")
   aprobadoPorId           Int?           @map("aprobado_por_id")
   rechazadoPorId          Int?           @map("rechazado_por_id")
   entregadoPorId          Int?           @map("entregado_por_id")
@@ -623,6 +631,7 @@ model Prestamo {
   materiaProfesor    MateriaProfesor? @relation(fields: [materiaProfesorId], references: [id])
   proyecto           Proyecto?        @relation(fields: [proyectoId], references: [id])
   actividad          Actividad?       @relation(fields: [actividadId], references: [id])
+  semillero          Semillero?       @relation(fields: [semilleroId], references: [id])
   aprobadoPor        Usuario?         @relation("UsuarioApruebaPrestamo", fields: [aprobadoPorId], references: [id])
   rechazadoPor       Usuario?         @relation("UsuarioRechazaPrestamo", fields: [rechazadoPorId], references: [id])
   entregadoPor       Usuario?         @relation("UsuarioEntregaPrestamo", fields: [entregadoPorId], references: [id])
@@ -644,6 +653,7 @@ model Prestamo {
   @@index([materiaProfesorId])
   @@index([proyectoId])
   @@index([actividadId])
+  @@index([semilleroId])
   @@index([estado])
   @@index([fechaRequerida])
   @@index([fechaDevolucionEstimada])
@@ -712,6 +722,7 @@ model SolicitudPublicaPrestamo {
   fechaPrestamo           DateTime                       @map("fecha_prestamo")
   fechaDevolucionEstimada DateTime                       @map("fecha_devolucion_estimada")
   diasPrestamo            Int                            @map("dias_prestamo")
+  cantidadSolicitada      Int                            @default(1) @map("cantidad_solicitada")
   descripcionActividad    String                         @map("descripcion_actividad")
   estado                  EstadoSolicitudPublicaPrestamo @default(RECIBIDA)
   observacionesInternas   String?                        @map("observaciones_internas")

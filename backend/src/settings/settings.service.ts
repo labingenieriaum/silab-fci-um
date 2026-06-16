@@ -3,6 +3,10 @@ import { MailService } from "../mail/mail.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 export const defaultEmailTemplates = {
+  deliveryAct: {
+    subject: "Acta de entrega {{loanCode}} - SIILAB FCI",
+    body: "Hola {{name}},<br><br>Adjuntamos la informacion del acta de entrega del prestamo {{loanCode}}.<br><br>{{extraMessage}}<br><br>SIILAB FCI"
+  },
   returnAct: {
     subject: "Acta de devolucion {{returnId}} - SIILAB FCI",
     body: "Hola {{name}},<br><br>Adjuntamos la informacion del acta de devolucion {{returnId}} del prestamo {{loanCode}}.<br><br>SIILAB FCI"

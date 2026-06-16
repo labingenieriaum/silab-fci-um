@@ -63,6 +63,13 @@ export class CreatePublicLoanRequestDto {
   @IsOptional()
   equipoId?: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  @IsOptional()
+  cantidadSolicitada?: number;
+
   @IsString()
   @MinLength(2)
   @MaxLength(180)

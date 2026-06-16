@@ -20,6 +20,7 @@ import type { CreateUserPayload, PaginatedUsers, UserListItem } from "@/types/us
 const tipoUsuarioOptions: Array<{ value: TipoUsuario; label: string }> = [
   { value: "ADMINISTRADOR", label: "Administrador" },
   { value: "COORDINACION_LABORATORIOS", label: "Coordinacion de laboratorios" },
+  { value: "PRACTICANTE", label: "Practicante" },
   { value: "DECANO", label: "Decano" },
   { value: "DIRECTOR_PROGRAMA", label: "Director de programa" },
   { value: "PROFESOR", label: "Profesor" },

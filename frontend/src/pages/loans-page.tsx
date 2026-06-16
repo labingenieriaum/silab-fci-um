@@ -1,11 +1,13 @@
 import { FormEvent, PointerEvent, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "react-router-dom";
 import {
   Camera,
   Check,
   ClipboardCheck,
   Copy,
+  Download,
   ExternalLink,
   FileQuestion,
   Loader2,
@@ -21,12 +23,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAuth } from "@/features/auth/auth-context";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, downloadApiFile } from "@/lib/api";
 import { formatDateTime, formatEnum } from "@/lib/format";
 import type {
   PaginatedActivities,
   PaginatedProjects,
-  PaginatedSubjects
+  PaginatedSeedbeds,
+  PaginatedSubjects,
+  SubjectProfessor
 } from "@/types/academic";
 import type { Facultad, Programa } from "@/types/catalogs";
 import type { Equipment, EquipmentUnit, PaginatedResponse } from "@/types/inventory";
@@ -85,6 +89,7 @@ interface PublicLoanRequest {
   fechaPrestamo: string;
   fechaDevolucionEstimada: string;
   diasPrestamo: number;
+  cantidadSolicitada: number;
   descripcionActividad: string;
   estado: EstadoSolicitudPublicaPrestamo;
   observacionesInternas: string | null;
@@ -111,6 +116,11 @@ interface ReturnMutationResponse {
   returnId: number;
 }
 
+interface EmailSendResponse {
+  sent: boolean;
+  to: string;
+}
+
 type ReturnSignatureKey = "coordinador" | "admin" | "solicitante";
 type DeliverySignatureKey = "coordinador" | "solicitante";
 
@@ -125,7 +135,11 @@ interface PublicApprovalFormState {
   materiaProfesorId: string;
   proyectoId: string;
   actividadId: string;
+  semilleroId: string;
+  associationType: "" | "PROYECTO" | "SEMILLERO" | "ACTIVIDAD";
+  otroDescripcion: string;
   observacionesInternas: string;
+  prestamoEspecial: boolean;
 }
 
 const initialForm: LoanFormState = {
@@ -151,18 +165,31 @@ const initialForm: LoanFormState = {
 };
 
 function publicApprovalInitialState(request: PublicLoanRequest): PublicApprovalFormState {
+  const now = new Date();
+  const requestedStart = new Date(request.fechaPrestamo);
+  const requestedEnd = new Date(request.fechaDevolucionEstimada);
+  const start = requestedStart < now ? new Date(now.getTime() + 5 * 60 * 1000) : requestedStart;
+  const end =
+    Number.isNaN(requestedEnd.getTime()) || requestedEnd <= start
+      ? new Date(start.getTime() + 24 * 60 * 60 * 1000)
+      : requestedEnd;
+
   return {
     equipoId: request.equipoId ? String(request.equipoId) : "",
     equipoUnidadId: "",
-    cantidadAprobada: "1",
-    fechaPrestamo: toDatetimeLocal(new Date(request.fechaPrestamo)),
-    fechaDevolucionEstimada: toDatetimeLocal(new Date(request.fechaDevolucionEstimada)),
-    tipoUso: "OTRO",
+    cantidadAprobada: String(request.cantidadSolicitada ?? 1),
+    fechaPrestamo: toDatetimeLocal(start),
+    fechaDevolucionEstimada: toDatetimeLocal(end),
+    tipoUso: request.rolSolicitante === "ADMINISTRATIVO" ? "ADMINISTRATIVO" : "ACADEMICO",
     materiaId: "",
     materiaProfesorId: "",
     proyectoId: "",
     actividadId: "",
-    observacionesInternas: request.observacionesInternas ?? ""
+    semilleroId: "",
+    associationType: "",
+    otroDescripcion: "",
+    observacionesInternas: request.observacionesInternas ?? "",
+    prestamoEspecial: !request.equipoId
   };
 }
 
@@ -192,6 +219,8 @@ const useTypeOptions = [
 export function LoansPage() {
   const queryClient = useQueryClient();
   const { user, hasPermission } = useAuth();
+  const location = useLocation();
+  const isReturnsView = location.pathname.startsWith("/returns");
   const [search, setSearch] = useState("");
   const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
   const [form, setForm] = useState<LoanFormState>(initialForm);
@@ -211,6 +240,9 @@ export function LoansPage() {
     coordinador: "",
     solicitante: ""
   });
+  const [deliveryCoordinationPresent, setDeliveryCoordinationPresent] = useState(true);
+  const [deliveryObservations, setDeliveryObservations] = useState("");
+  const [deliveryModalLoan, setDeliveryModalLoan] = useState<Loan | null>(null);
   const [lastDeliveryActLoanId, setLastDeliveryActLoanId] = useState<number | null>(null);
   const [returnPhotos, setReturnPhotos] = useState<ReturnEvidencePhoto[]>([]);
   const [returnSignatures, setReturnSignatures] = useState<Record<ReturnSignatureKey, string>>({
@@ -218,6 +250,9 @@ export function LoansPage() {
     admin: "",
     solicitante: ""
   });
+  const [returnCoordinationPresent, setReturnCoordinationPresent] = useState(true);
+  const [returnObservations, setReturnObservations] = useState("");
+  const [returnModalLoan, setReturnModalLoan] = useState<Loan | null>(null);
   const [lastReturnActId, setLastReturnActId] = useState<number | null>(null);
 
   const loansQuery = useQuery({
@@ -230,7 +265,7 @@ export function LoansPage() {
 
   const publicRequestsQuery = useQuery({
     queryKey: ["public-loan-requests"],
-    enabled: hasPermission("prestamos:aprobar"),
+    enabled: !isReturnsView && hasPermission("prestamos:aprobar"),
     queryFn: () => apiRequest<PublicLoanRequest[]>("/loan-requests")
   });
 
@@ -256,17 +291,22 @@ export function LoansPage() {
 
   const subjectsQuery = useQuery({
     queryKey: ["subjects", "loan-form"],
-    queryFn: () => apiRequest<PaginatedSubjects>("/subjects?page=1&pageSize=200&activo=true")
+    queryFn: () => apiRequest<PaginatedSubjects>("/subjects?page=1&pageSize=100&activo=true")
   });
 
   const projectsQuery = useQuery({
     queryKey: ["projects", "loan-form"],
-    queryFn: () => apiRequest<PaginatedProjects>("/projects?page=1&pageSize=200&activo=true")
+    queryFn: () => apiRequest<PaginatedProjects>("/projects?page=1&pageSize=100&activo=true")
+  });
+
+  const seedbedsQuery = useQuery({
+    queryKey: ["seedbeds", "loan-form"],
+    queryFn: () => apiRequest<PaginatedSeedbeds>("/seedbeds?page=1&pageSize=100&activo=true")
   });
 
   const activitiesQuery = useQuery({
     queryKey: ["activities", "loan-form"],
-    queryFn: () => apiRequest<PaginatedActivities>("/activities?page=1&pageSize=200&activo=true")
+    queryFn: () => apiRequest<PaginatedActivities>("/activities?page=1&pageSize=100&activo=true")
   });
 
   const selectedEquipment = useMemo(
@@ -291,13 +331,23 @@ export function LoansPage() {
     queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${publicApprovalForm?.equipoId}/units`)
   });
 
-  const loans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
+  const allLoans = useMemo(() => loansQuery.data?.data ?? [], [loansQuery.data]);
+  const loans = useMemo(
+    () =>
+      isReturnsView
+        ? allLoans.filter((loan) =>
+            ["APROBADO", "ENTREGADO", "DEVUELTO_PARCIAL", "DEVUELTO", "VENCIDO"].includes(loan.estado)
+          )
+        : allLoans,
+    [allLoans, isReturnsView]
+  );
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const requesterPeople = useMemo(() => peopleQuery.data?.data ?? [], [peopleQuery.data]);
   const programs = useMemo(() => programsQuery.data ?? [], [programsQuery.data]);
   const faculties = useMemo(() => facultiesQuery.data ?? [], [facultiesQuery.data]);
   const subjects = useMemo(() => subjectsQuery.data?.data ?? [], [subjectsQuery.data]);
   const projects = useMemo(() => projectsQuery.data?.data ?? [], [projectsQuery.data]);
+  const seedbeds = useMemo(() => seedbedsQuery.data?.data ?? [], [seedbedsQuery.data]);
   const activities = useMemo(() => activitiesQuery.data?.data ?? [], [activitiesQuery.data]);
   const selectedLoan = loans.find((loan) => loan.id === selectedLoanId) ?? loans[0] ?? null;
   const publicRequests = publicRequestsQuery.data ?? [];
@@ -356,7 +406,7 @@ export function LoansPage() {
         value: String(subject.id),
         label: `${subject.codigo} - ${subject.nombre}`,
         description: subject.programa?.nombre,
-        searchText: `${subject.codigo} ${subject.nombre} ${subject.programa?.nombre ?? ""} ${subject.profesores.map((professor) => professor.profesor.nombre).join(" ")}`
+        searchText: `${subject.codigo} ${subject.nombre} ${subject.programa?.nombre ?? ""} ${subject.profesores.map(subjectProfessorOptionName).join(" ")}`
       })),
     [subjects]
   );
@@ -372,9 +422,9 @@ export function LoansPage() {
         .filter((professor) => professor.activo)
         .map((professor) => ({
           value: String(professor.id),
-          label: `${professor.profesor.nombre} / ${professor.grupo}`,
-          description: professor.periodo ?? professor.profesor.correo,
-          searchText: `${professor.profesor.nombre} ${professor.profesor.correo} ${professor.grupo} ${professor.periodo ?? ""}`
+          label: `${subjectProfessorOptionName(professor)} / ${professor.grupo}`,
+          description: professor.periodo ?? subjectProfessorOptionEmail(professor),
+          searchText: `${subjectProfessorOptionName(professor)} ${subjectProfessorOptionEmail(professor)} ${professor.grupo} ${professor.periodo ?? ""}`
         })),
     [selectedSubject]
   );
@@ -390,9 +440,9 @@ export function LoansPage() {
         .filter((professor) => professor.activo)
         .map((professor) => ({
           value: String(professor.id),
-          label: `${professor.profesor.nombre} / ${professor.grupo}`,
-          description: professor.periodo ?? professor.profesor.correo,
-          searchText: `${professor.profesor.nombre} ${professor.profesor.correo} ${professor.grupo} ${professor.periodo ?? ""}`
+          label: `${subjectProfessorOptionName(professor)} / ${professor.grupo}`,
+          description: professor.periodo ?? subjectProfessorOptionEmail(professor),
+          searchText: `${subjectProfessorOptionName(professor)} ${subjectProfessorOptionEmail(professor)} ${professor.grupo} ${professor.periodo ?? ""}`
         })),
     [approvalSelectedSubject]
   );
@@ -406,6 +456,17 @@ export function LoansPage() {
         searchText: `${project.nombre} ${project.tipo} ${project.semillero?.nombre ?? ""}`
       })),
     [projects]
+  );
+
+  const seedbedOptions = useMemo(
+    () =>
+      seedbeds.map((seedbed) => ({
+        value: String(seedbed.id),
+        label: `${seedbed.codigo} - ${seedbed.nombre}`,
+        description: seedbed.facultad?.sigla,
+        searchText: `${seedbed.codigo} ${seedbed.nombre} ${seedbed.facultad?.nombre ?? ""} ${seedbed.facultad?.sigla ?? ""}`
+      })),
+    [seedbeds]
   );
 
   const activityOptions = useMemo(
@@ -556,6 +617,7 @@ export function LoansPage() {
       apiRequest<Loan>(`/loans/${loan.id}/deliver`, {
         method: "PATCH",
         body: JSON.stringify({
+          observaciones: deliveryObservations.trim() || undefined,
           evidencias: [
             ...deliveryPhotos.map((photo) => ({
               tipo: "FOTO",
@@ -563,12 +625,16 @@ export function LoansPage() {
               mimeType: photo.mimeType,
               contenidoBase64: photo.dataUrl
             })),
-            {
-              tipo: "FIRMA_COORDINADOR",
-              mimeType: "image/png",
-              contenidoBase64: deliverySignatures.coordinador,
-              firmanteNombre: user?.nombre ?? "Coordinacion"
-            },
+            ...(deliveryCoordinationPresent
+              ? [
+                  {
+                    tipo: "FIRMA_COORDINADOR",
+                    mimeType: "image/png",
+                    contenidoBase64: deliverySignatures.coordinador,
+                    firmanteNombre: user?.nombre ?? "Coordinacion"
+                  }
+                ]
+              : []),
             {
               tipo: "FIRMA_SOLICITANTE",
               mimeType: "image/png",
@@ -579,16 +645,36 @@ export function LoansPage() {
         })
       }),
     onSuccess: async (loan) => {
-      setFeedback("Entrega registrada.");
+      let deliveryFeedback = "Entrega registrada.";
+      try {
+        const result = await apiRequest<EmailSendResponse>(`/loans/${loan.id}/delivery-act/email`, {
+          method: "POST",
+          body: JSON.stringify({
+            message: deliveryObservations.trim() || undefined
+          })
+        });
+        deliveryFeedback = `Entrega registrada y acta enviada a ${result.to}.`;
+      } catch (error) {
+        deliveryFeedback = `Entrega registrada. ${
+          error instanceof Error ? error.message : "No fue posible enviar el acta por correo."
+        }`;
+      }
       setSelectedLoanId(loan.id);
       setLastDeliveryActLoanId(loan.id);
+      setDeliveryModalLoan(null);
       setDeliveryPhotos([]);
       setDeliverySignatures({ coordinador: "", solicitante: "" });
+      setDeliveryCoordinationPresent(true);
+      setDeliveryObservations("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["loans"] }),
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
       ]);
+      if (window.confirm("Entrega registrada. Quieres descargar el PDF del acta de entrega?")) {
+        await downloadApiFile(`/reports/acts/loans/${loan.id}.pdf`, `acta-entrega-${loan.codigo}.pdf`);
+      }
+      setFeedback(deliveryFeedback);
     },
     onError: setErrorFeedback
   });
@@ -598,6 +684,7 @@ export function LoansPage() {
       apiRequest<ReturnMutationResponse>(`/loans/${loan.id}/returns`, {
         method: "POST",
         body: JSON.stringify({
+          observaciones: returnObservations.trim() || undefined,
           detalles: loan.detalles
             .map((detail) => ({
               prestamoDetalleId: detail.id,
@@ -612,17 +699,21 @@ export function LoansPage() {
               mimeType: photo.mimeType,
               contenidoBase64: photo.dataUrl
             })),
-            {
-              tipo: "FIRMA_COORDINADOR",
-              mimeType: "image/png",
-              contenidoBase64: returnSignatures.coordinador,
-              firmanteNombre: user?.nombre ?? "Coordinacion"
-            },
+            ...(returnCoordinationPresent
+              ? [
+                  {
+                    tipo: "FIRMA_COORDINADOR",
+                    mimeType: "image/png",
+                    contenidoBase64: returnSignatures.coordinador,
+                    firmanteNombre: user?.nombre ?? "Coordinacion"
+                  }
+                ]
+              : []),
             {
               tipo: "FIRMA_ADMIN",
               mimeType: "image/png",
               contenidoBase64: returnSignatures.admin,
-              firmanteNombre: "Administrador del sistema"
+              firmanteNombre: user?.nombre ?? "Usuario que recibe"
             },
             {
               tipo: "FIRMA_SOLICITANTE",
@@ -635,17 +726,31 @@ export function LoansPage() {
       }),
     onSuccess: async (result) => {
       setFeedback("Devolucion registrada.");
+      queryClient.setQueriesData<PaginatedLoans>({ queryKey: ["loans"] }, (current) =>
+        current
+          ? {
+              ...current,
+              data: current.data.map((loan) => (loan.id === result.loan.id ? result.loan : loan))
+            }
+          : current
+      );
       setSelectedLoanId(result.loan.id);
       setLastReturnActId(result.returnId);
       setReturnQuantities({});
       setReturnConditionsByDetail({});
       setReturnPhotos([]);
       setReturnSignatures({ coordinador: "", admin: "", solicitante: "" });
+      setReturnCoordinationPresent(true);
+      setReturnObservations("");
+      setReturnModalLoan(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["loans"] }),
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
       ]);
+      if (window.confirm("Devolucion registrada. Quieres descargar el PDF del acta de devolucion?")) {
+        await downloadApiFile(`/reports/acts/returns/${result.returnId}.pdf`, `acta-devolucion-${result.returnId}.pdf`);
+      }
     },
     onError: setErrorFeedback
   });
@@ -660,7 +765,7 @@ export function LoansPage() {
       requestId: number;
       estado: EstadoSolicitudPublicaPrestamo;
       observacionesInternas?: string;
-      approval?: Omit<PublicApprovalFormState, "observacionesInternas">;
+      approval?: PublicApprovalFormState;
     }) =>
       apiRequest<PublicLoanRequest>(`/loan-requests/${requestId}/status`, {
         method: "PATCH",
@@ -669,7 +774,11 @@ export function LoansPage() {
           observacionesInternas,
           ...(approval
             ? {
-                equipoId: approval.equipoId ? Number(approval.equipoId) : undefined,
+                equipoId: approval.prestamoEspecial
+                  ? null
+                  : approval.equipoId
+                    ? Number(approval.equipoId)
+                    : undefined,
                 equipoUnidadId: approval.equipoUnidadId
                   ? Number(approval.equipoUnidadId)
                   : undefined,
@@ -684,7 +793,8 @@ export function LoansPage() {
                   ? Number(approval.materiaProfesorId)
                   : undefined,
                 proyectoId: approval.proyectoId ? Number(approval.proyectoId) : undefined,
-                actividadId: approval.actividadId ? Number(approval.actividadId) : undefined
+                actividadId: approval.actividadId ? Number(approval.actividadId) : undefined,
+                semilleroId: approval.semilleroId ? Number(approval.semilleroId) : undefined
               }
             : {})
         })
@@ -793,12 +903,16 @@ export function LoansPage() {
       setFeedback("Registra al menos una cantidad a devolver.");
       return;
     }
-    if (!returnPhotos.length) {
-      setFeedback("Adjunta al menos una foto de los equipos devueltos.");
-      return;
-    }
-    if (!returnSignatures.coordinador || !returnSignatures.admin || !returnSignatures.solicitante) {
-      setFeedback("Registra las firmas de coordinacion, administrador y solicitante.");
+    if (
+      (returnCoordinationPresent && !returnSignatures.coordinador) ||
+      !returnSignatures.admin ||
+      !returnSignatures.solicitante
+    ) {
+      setFeedback(
+        returnCoordinationPresent
+          ? "Registra las firmas de coordinacion, quien recibe y solicitante."
+          : "Registra las firmas de quien recibe y solicitante."
+      );
       return;
     }
     returnMutation.mutate(loan);
@@ -806,15 +920,61 @@ export function LoansPage() {
 
   function handleDeliver(loan: Loan) {
     setFeedback(null);
-    if (!deliveryPhotos.length) {
-      setFeedback("Adjunta al menos una foto de los equipos entregados.");
-      return;
-    }
-    if (!deliverySignatures.coordinador || !deliverySignatures.solicitante) {
-      setFeedback("Registra las firmas de coordinacion y solicitante.");
+    if ((deliveryCoordinationPresent && !deliverySignatures.coordinador) || !deliverySignatures.solicitante) {
+      setFeedback(
+        deliveryCoordinationPresent
+          ? "Registra las firmas de coordinacion y solicitante."
+          : "Registra la firma del solicitante."
+      );
       return;
     }
     deliverMutation.mutate(loan);
+  }
+
+  function openDeliveryModal(loan: Loan) {
+    setFeedback(null);
+    setSelectedLoanId(loan.id);
+    setDeliveryModalLoan(loan);
+    setDeliveryPhotos([]);
+    setDeliverySignatures({ coordinador: "", solicitante: "" });
+    setDeliveryCoordinationPresent(true);
+    setDeliveryObservations("");
+  }
+
+  function openReturnModal(loan: Loan) {
+    setFeedback(null);
+    if (!hasPendingReturn(loan)) {
+      setFeedback("Este prestamo ya no tiene equipos pendientes por devolver.");
+      setSelectedLoanId(loan.id);
+      return;
+    }
+    const quantities: Record<number, string> = {};
+    const conditions: Record<number, EstadoCondicionEquipo> = {};
+    loan.detalles.forEach((detail) => {
+      const pending = detail.cantidadEntregada - detail.cantidadDevuelta;
+      if (pending > 0) {
+        quantities[detail.id] = String(pending);
+        conditions[detail.id] = "BUENO";
+      }
+    });
+    setSelectedLoanId(loan.id);
+    setReturnModalLoan({
+      ...loan,
+      detalles: loan.detalles.map((detail) => ({ ...detail }))
+    });
+    setReturnQuantities(quantities);
+    setReturnConditionsByDetail(conditions);
+    setReturnPhotos([]);
+    setReturnSignatures({ coordinador: "", admin: "", solicitante: "" });
+    setReturnCoordinationPresent(true);
+    setReturnObservations("");
+  }
+
+  async function downloadDeliveryActPdf(loan: Loan) {
+    if (!window.confirm("Quieres descargar el PDF del acta de entrega?")) {
+      return;
+    }
+    await downloadApiFile(`/reports/acts/loans/${loan.id}.pdf`, `acta-entrega-${loan.codigo}.pdf`);
   }
 
   async function handleReturnPhotos(files: FileList | null) {
@@ -872,8 +1032,23 @@ export function LoansPage() {
         ? {
             ...current,
             [key]: value,
-            ...(key === "equipoId" ? { equipoUnidadId: "", cantidadAprobada: "1" } : {}),
-            ...(key === "materiaId" ? { materiaProfesorId: "" } : {})
+            ...(key === "equipoId" ? { equipoUnidadId: "", cantidadAprobada: "1", prestamoEspecial: false } : {}),
+            ...(key === "materiaId" ? { materiaProfesorId: "" } : {}),
+            ...(key === "tipoUso"
+              ? {
+                  materiaId: "",
+                  materiaProfesorId: "",
+                  proyectoId: "",
+                  semilleroId: "",
+                  actividadId: "",
+                  associationType: "",
+                  otroDescripcion: ""
+                }
+              : {}),
+            ...(key === "associationType"
+              ? { proyectoId: "", semilleroId: "", actividadId: "" }
+              : {}),
+            ...(key === "prestamoEspecial" && value ? { equipoId: "", equipoUnidadId: "" } : {})
           }
         : current
     );
@@ -884,7 +1059,7 @@ export function LoansPage() {
       return;
     }
     setFeedback(null);
-    if (!publicApprovalForm.equipoId) {
+    if (!publicApprovalForm.prestamoEspecial && !publicApprovalForm.equipoId) {
       setFeedback("Selecciona el equipo que se entregara.");
       return;
     }
@@ -903,23 +1078,40 @@ export function LoansPage() {
       setFeedback("Selecciona la materia para aprobar el prestamo academico.");
       return;
     }
+    if (publicApprovalForm.tipoUso !== "ACADEMICO" && publicApprovalForm.tipoUso !== "OTRO") {
+      if (!publicApprovalForm.associationType) {
+        setFeedback("Selecciona si el prestamo pertenece a un proyecto, semillero o actividad.");
+        return;
+      }
+      if (
+        (publicApprovalForm.associationType === "PROYECTO" && !publicApprovalForm.proyectoId) ||
+        (publicApprovalForm.associationType === "SEMILLERO" && !publicApprovalForm.semilleroId) ||
+        (publicApprovalForm.associationType === "ACTIVIDAD" && !publicApprovalForm.actividadId)
+      ) {
+        setFeedback("Selecciona el registro asociado al prestamo.");
+        return;
+      }
+    }
+    if (publicApprovalForm.tipoUso === "OTRO" && publicApprovalForm.otroDescripcion.trim().length < 3) {
+      setFeedback("Describe el motivo del uso otro.");
+      return;
+    }
+
+    const note = [
+      publicApprovalForm.observacionesInternas,
+      publicApprovalForm.tipoUso === "OTRO"
+        ? `Uso otro: ${publicApprovalForm.otroDescripcion.trim()}`
+        : "",
+      publicApprovalForm.prestamoEspecial ? "Prestamo especial sin equipo inventariado." : ""
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     publicRequestMutation.mutate({
       requestId: publicApprovalRequest.id,
       estado: "CONVERTIDA",
-      observacionesInternas: publicApprovalForm.observacionesInternas || undefined,
-      approval: {
-        equipoId: publicApprovalForm.equipoId,
-        equipoUnidadId: publicApprovalForm.equipoUnidadId,
-        cantidadAprobada: publicApprovalForm.cantidadAprobada,
-        fechaPrestamo: publicApprovalForm.fechaPrestamo,
-        fechaDevolucionEstimada: publicApprovalForm.fechaDevolucionEstimada,
-        tipoUso: publicApprovalForm.tipoUso,
-        materiaId: publicApprovalForm.materiaId,
-        materiaProfesorId: publicApprovalForm.materiaProfesorId,
-        proyectoId: publicApprovalForm.proyectoId,
-        actividadId: publicApprovalForm.actividadId
-      }
+      observacionesInternas: note || undefined,
+      approval: publicApprovalForm
     });
   }
 
@@ -956,17 +1148,23 @@ export function LoansPage() {
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal">Prestamos y devoluciones</h1>
+          <h1 className="text-2xl font-semibold tracking-normal">
+            {isReturnsView ? "Devoluciones" : "Prestamos y devoluciones"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Solicitudes, aprobaciones, entregas y recepcion de equipos.
+            {isReturnsView
+              ? "Prestamos aprobados, entregados o vencidos para registrar entrega, devolucion y actas."
+              : "Solicitudes, aprobaciones, entregas y recepcion de equipos."}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button type="button" variant="outline" onClick={copyPublicFormLink}>
-            <Copy className="h-4 w-4" />
-            Copiar link formulario
-          </Button>
-          {hasPermission("prestamos:solicitar") && (
+          {!isReturnsView && (
+            <Button type="button" variant="outline" onClick={copyPublicFormLink}>
+              <Copy className="h-4 w-4" />
+              Copiar link formulario
+            </Button>
+          )}
+          {!isReturnsView && hasPermission("prestamos:solicitar") && (
             <Button type="button" onClick={() => setLoanFormOpen(true)}>
               <Plus className="h-4 w-4" />
               Nueva solicitud
@@ -995,13 +1193,20 @@ export function LoansPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>Solicitudes recientes</CardTitle>
+              <CardTitle>{isReturnsView ? "Prestamos para devolucion" : "Solicitudes recientes"}</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                {loansQuery.data?.total ?? 0} registros encontrados
+                {isReturnsView ? loans.length : loansQuery.data?.total ?? 0} registros encontrados
               </p>
             </div>
             {loansQuery.isFetching && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
           </CardHeader>
+          {loansQuery.isError && (
+            <div className="mx-6 mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {loansQuery.error instanceof Error
+                ? loansQuery.error.message
+                : "No fue posible cargar la lista de prestamos."}
+            </div>
+          )}
           <CardContent>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[980px] text-sm">
@@ -1013,44 +1218,117 @@ export function LoansPage() {
                     <th className="px-4 py-3 text-left font-semibold">Uso</th>
                     <th className="px-4 py-3 text-left font-semibold">Estado</th>
                     <th className="px-4 py-3 text-left font-semibold">Devolucion</th>
+                    <th className="px-4 py-3 text-right font-semibold">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {loans.map((loan) => (
-                    <tr
-                      key={loan.id}
-                      className="cursor-pointer border-t bg-white hover:bg-muted/30"
-                      onClick={() => setSelectedLoanId(loan.id)}
-                    >
-                      <td className="px-4 py-3 font-medium">{loan.codigo}</td>
-                      <td className="px-4 py-3">
-                        <div>{getLoanRequesterName(loan)}</div>
-                        <div className="text-xs text-muted-foreground">{getLoanRequesterEmail(loan)}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {loan.detalles.map((detail) => (
-                          <div key={detail.id}>
-                            {detail.equipo.codigoInterno} - {detail.equipo.nombre}
+                  {loans.map((loan) => {
+                    const displayState = getLoanDisplayState(loan);
+                    return (
+                      <tr
+                        key={loan.id}
+                        className="cursor-pointer border-t bg-white hover:bg-muted/30"
+                        onClick={() => setSelectedLoanId(loan.id)}
+                      >
+                        <td className="px-4 py-3 font-medium">{loan.codigo}</td>
+                        <td className="px-4 py-3">
+                          <div>{getLoanRequesterName(loan)}</div>
+                          <div className="text-xs text-muted-foreground">{getLoanRequesterEmail(loan)}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {loan.detalles.length
+                            ? loan.detalles.map((detail) => (
+                                <div key={detail.id}>
+                                  {detail.equipo.codigoInterno} - {detail.equipo.nombre}
+                                </div>
+                              ))
+                            : "Prestamo especial"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div>{formatEnum(loan.tipoUso)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {getLoanAcademicContext(loan)}
                           </div>
-                        ))}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div>{formatEnum(loan.tipoUso)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {getLoanAcademicContext(loan)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={getLoanBadgeClass(loan.estado)}>{formatEnum(loan.estado)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {formatDateTime(loan.fechaDevolucionEstimada)}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={getLoanBadgeClass(displayState)}>{formatEnum(displayState)}</span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {formatDateTime(loan.fechaDevolucionEstimada)}
+                        </td>
+                        <td
+                          className="px-4 py-3"
+                          onClick={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.stopPropagation()}
+                        >
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {["SOLICITADO", "APROBADO"].includes(loan.estado) && hasPermission("prestamos:entregar") && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openDeliveryModal(loan);
+                                }}
+                                disabled={pendingAction}
+                              >
+                                <PackageCheck className="h-4 w-4" />
+                                Entregar
+                              </Button>
+                            )}
+                            {isReturnsView && canReturn(loan.estado) && hasPendingReturn(loan) && hasPermission("devoluciones:registrar") && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  openReturnModal(loan);
+                                }}
+                                disabled={pendingAction}
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                Devolver
+                              </Button>
+                            )}
+                            {loan.evidencias.length > 0 && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  window.location.href = `/loans/${loan.id}/acta-entrega`;
+                                }}
+                              >
+                                <ClipboardCheck className="h-4 w-4" />
+                                Acta
+                              </Button>
+                            )}
+                            {isReturnsView && hasPermission("prestamos:aprobar") && loan.estado !== "DEVUELTO" && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  dueSoonEmailMutation.mutate(loan.id);
+                                }}
+                                disabled={pendingAction}
+                              >
+                                <MailIcon className="h-4 w-4" />
+                                Avisar
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {!loans.length && (
                     <tr>
-                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>
                         No hay prestamos registrados.
                       </td>
                     </tr>
@@ -1062,7 +1340,7 @@ export function LoansPage() {
         </Card>
 
         <div className="space-y-4">
-          {hasPermission("prestamos:aprobar") && (
+          {!isReturnsView && hasPermission("prestamos:aprobar") && (
             <Card>
               <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
@@ -1216,6 +1494,9 @@ export function LoansPage() {
                                 {request.equipo.cantidadDisponible} disponibles
                               </div>
                             )}
+                            <div className="text-xs font-medium text-muted-foreground">
+                              Solicita: {request.cantidadSolicitada ?? 1}
+                            </div>
                           </td>
                           <td className="px-3 py-3 text-xs text-muted-foreground">
                             <div>{formatDateTime(request.fechaPrestamo)}</div>
@@ -1242,6 +1523,20 @@ export function LoansPage() {
                             <span className={getPublicRequestBadgeClass(request.estado)}>
                               {formatEnum(request.estado)}
                             </span>
+                            {request.prestamoConvertido ? (
+                              <button
+                                className="mt-2 flex items-center gap-1 text-xs font-semibold text-primary"
+                                type="button"
+                                onClick={() => setSelectedLoanId(request.prestamoConvertido?.id ?? null)}
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Prestamo {request.prestamoConvertido.codigo}
+                              </button>
+                            ) : request.estado === "CONVERTIDA" ? (
+                              <div className="mt-2 text-xs font-medium text-destructive">
+                                Sin prestamo asociado
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-end gap-2">
@@ -1259,8 +1554,8 @@ export function LoansPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                disabled={pendingAction}
-                                onClick={() => updatePublicRequestStatus(request, "CONVERTIDA")}
+                                disabled={pendingAction || request.estado === "CONVERTIDA"}
+                                onClick={() => openPublicApproval(request)}
                               >
                                 <MailIcon className="h-4 w-4" />
                                 Aprobar
@@ -1316,7 +1611,7 @@ export function LoansPage() {
             </Card>
           )}
 
-          {hasPermission("prestamos:solicitar") && loanFormOpen && (
+          {!isReturnsView && hasPermission("prestamos:solicitar") && loanFormOpen && (
             <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
               <Card className="w-full max-w-3xl">
                 <CardHeader className="flex flex-row items-center justify-between">
@@ -1587,7 +1882,7 @@ export function LoansPage() {
             </div>
           )}
 
-          {selectedLoan && (
+          {selectedLoan && !isReturnsView && (
             <Card>
               <CardHeader>
                 <CardTitle>Detalle del prestamo</CardTitle>
@@ -1677,7 +1972,7 @@ export function LoansPage() {
                     <div>
                       <h3 className="text-sm font-semibold">Evidencias de devolucion</h3>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Adjunta fotos y registra las tres firmas para generar el acta.
+                        Adjunta fotos y registra las firmas para generar el acta.
                       </p>
                     </div>
                     <label className="block text-sm font-medium">
@@ -1700,16 +1995,37 @@ export function LoansPage() {
                         ))}
                       </div>
                     )}
-                    <div className="grid gap-3">
-                      <SignaturePad
-                        label="Firma coordinacion"
-                        value={returnSignatures.coordinador}
-                        onChange={(value) =>
-                          setReturnSignatures((current) => ({ ...current, coordinador: value }))
-                        }
+                    <label className="flex items-start gap-2 rounded-md border bg-white px-3 py-2 text-sm font-medium">
+                      <input
+                        className="mt-1"
+                        type="checkbox"
+                        checked={!returnCoordinationPresent}
+                        onChange={(event) => {
+                          setReturnCoordinationPresent(!event.target.checked);
+                          if (event.target.checked) {
+                            setReturnSignatures((current) => ({ ...current, coordinador: "" }));
+                          }
+                        }}
                       />
+                      <span>
+                        Coordinacion no esta presente
+                        <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                          El acta indicara que recibio {user?.nombre ?? "Usuario activo"} con rol: {user?.rol.nombre ?? formatEnum(user?.tipoUsuario ?? "PRACTICANTE")}.
+                        </span>
+                      </span>
+                    </label>
+                    <div className="grid gap-3">
+                      {returnCoordinationPresent && (
+                        <SignaturePad
+                          label="Firma coordinacion"
+                          value={returnSignatures.coordinador}
+                          onChange={(value) =>
+                            setReturnSignatures((current) => ({ ...current, coordinador: value }))
+                          }
+                        />
+                      )}
                       <SignaturePad
-                        label="Firma administrador del sistema"
+                        label="Firma quien recibe"
                         value={returnSignatures.admin}
                         onChange={(value) =>
                           setReturnSignatures((current) => ({ ...current, admin: value }))
@@ -1767,72 +2083,38 @@ export function LoansPage() {
                 )}
 
                 {selectedLoan.estado === "APROBADO" && hasPermission("prestamos:entregar") && (
-                  <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                  <div className="rounded-md border bg-muted/20 p-3">
                     <div>
                       <h3 className="text-sm font-semibold">Acta de entrega</h3>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Toma fotos de los equipos y registra las firmas digitales para entregar.
+                        Selecciona el prestamo para tomar fotos, firmar, registrar observaciones y generar el acta.
                       </p>
                     </div>
-                    <label className="block text-sm font-medium">
-                      Fotos de los equipos entregados
-                      <span className="mt-2 flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-muted-foreground">
-                        <Camera className="h-4 w-4 text-primary" />
-                        Camara o galeria
-                      </span>
-                      <input
-                        className="sr-only"
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        multiple
-                        onChange={(event) => void handleDeliveryPhotos(event.target.files)}
-                      />
-                    </label>
-                    {deliveryPhotos.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2">
-                        {deliveryPhotos.map((photo, index) => (
-                          <div key={`${photo.name}-${index}`} className="overflow-hidden rounded-md border bg-white">
-                            <img className="h-20 w-full object-cover" src={photo.dataUrl} alt={photo.name} />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="grid gap-3">
-                      <SignaturePad
-                        label="Firma coordinacion"
-                        value={deliverySignatures.coordinador}
-                        onChange={(value) =>
-                          setDeliverySignatures((current) => ({ ...current, coordinador: value }))
-                        }
-                      />
-                      <SignaturePad
-                        label="Firma solicitante"
-                        value={deliverySignatures.solicitante}
-                        onChange={(value) =>
-                          setDeliverySignatures((current) => ({ ...current, solicitante: value }))
-                        }
-                      />
-                    </div>
                     <Button
-                      className="w-full"
+                      className="mt-3"
                       type="button"
-                      onClick={() => handleDeliver(selectedLoan)}
+                      onClick={() => openDeliveryModal(selectedLoan)}
                       disabled={pendingAction}
                     >
                       <PackageCheck className="h-4 w-4" />
-                      Registrar entrega y generar acta
+                      Registrar entrega
                     </Button>
                   </div>
                 )}
 
                 {(lastDeliveryActLoanId === selectedLoan.id || selectedLoan.evidencias.length > 0) && (
-                  <a
-                    className="block rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm font-medium text-primary"
-                    href={`/loans/${selectedLoan.id}/acta-entrega`}
-                  >
-                    Visualizar acta de entrega {selectedLoan.codigo}
-                  </a>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <a
+                      className="block rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-center text-sm font-medium text-primary"
+                      href={`/loans/${selectedLoan.id}/acta-entrega`}
+                    >
+                      Visualizar acta de entrega {selectedLoan.codigo}
+                    </a>
+                    <Button type="button" variant="outline" onClick={() => void downloadDeliveryActPdf(selectedLoan)}>
+                      <Download className="h-4 w-4" />
+                      Descargar PDF
+                    </Button>
+                  </div>
                 )}
 
                 {canReturn(selectedLoan.estado) && hasPermission("devoluciones:registrar") && (
@@ -1851,6 +2133,423 @@ export function LoansPage() {
           )}
         </div>
       </section>
+
+      {deliveryModalLoan && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+          <div className="w-full max-w-4xl rounded-md border bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b p-4">
+              <div>
+                <h2 className="text-lg font-semibold">Acta de entrega</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {deliveryModalLoan.codigo} - {getLoanRequesterName(deliveryModalLoan)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Cerrar"
+                onClick={() => setDeliveryModalLoan(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <InfoBlock label="Solicitante" value={getLoanRequesterName(deliveryModalLoan)} />
+                  <InfoBlock label="Correo" value={getLoanRequesterEmail(deliveryModalLoan) || "Sin correo"} />
+                  <InfoBlock label="Devolucion estimada" value={formatDateTime(deliveryModalLoan.fechaDevolucionEstimada)} />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[640px] text-sm">
+                  <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Equipo</th>
+                      <th className="px-3 py-2 text-left">Unidad</th>
+                      <th className="px-3 py-2 text-left">Cantidad aprobada</th>
+                      <th className="px-3 py-2 text-left">Estado entrega</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deliveryModalLoan.detalles.map((detail) => (
+                      <tr key={detail.id} className="border-t">
+                        <td className="px-3 py-2">
+                          <div className="font-medium">{detail.equipo.nombre}</div>
+                          <div className="text-xs text-muted-foreground">{detail.equipo.codigoInterno}</div>
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {detail.equipoUnidad?.codigoInterno ?? "N/A"}
+                        </td>
+                        <td className="px-3 py-2">{detail.cantidadAprobada ?? detail.cantidadSolicitada}</td>
+                        <td className="px-3 py-2">Bueno</td>
+                      </tr>
+                    ))}
+                    {!deliveryModalLoan.detalles.length && (
+                      <tr>
+                        <td className="px-3 py-6 text-center text-muted-foreground" colSpan={4}>
+                          Prestamo especial sin equipo de inventario asociado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Fotos de entrega</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Opcional: toma fotos del estado de los equipos antes de entregarlos.
+                    </p>
+                  </div>
+                  <label className="block text-sm font-medium">
+                    <span className="flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-muted-foreground">
+                      <Camera className="h-4 w-4 text-primary" />
+                      Camara o galeria
+                    </span>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      multiple
+                      onChange={(event) => void handleDeliveryPhotos(event.target.files)}
+                    />
+                  </label>
+                  {deliveryPhotos.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {deliveryPhotos.map((photo, index) => (
+                        <div key={`${photo.name}-${index}`} className="overflow-hidden rounded-md border bg-white">
+                          <img className="h-24 w-full object-cover" src={photo.dataUrl} alt={photo.name} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!deliveryPhotos.length && (
+                    <p className="rounded-md border border-dashed bg-white px-3 py-2 text-sm text-muted-foreground">
+                      Sin fotos subidas.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Observaciones</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Estas observaciones quedan en el acta y en la trazabilidad del prestamo.
+                    </p>
+                  </div>
+                  <textarea
+                    className="textarea-control min-h-36"
+                    value={deliveryObservations}
+                    onChange={(event) => setDeliveryObservations(event.target.value)}
+                    placeholder="Ej. Se entrega equipo completo, probado y en buen estado."
+                  />
+                  {!deliveryObservations.trim() && (
+                    <p className="text-sm text-muted-foreground">No hubo comentarios.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium">
+                  <input
+                    className="mt-1"
+                    type="checkbox"
+                    checked={!deliveryCoordinationPresent}
+                    onChange={(event) => {
+                      setDeliveryCoordinationPresent(!event.target.checked);
+                      if (event.target.checked) {
+                        setDeliverySignatures((current) => ({ ...current, coordinador: "" }));
+                      }
+                    }}
+                  />
+                  <span>
+                    Coordinacion no esta presente
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                      El acta indicara que el equipo fue entregado por el usuario activo: {user?.nombre ?? "Usuario activo"} con rol: {user?.rol.nombre ?? formatEnum(user?.tipoUsuario ?? "PRACTICANTE")}.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                {deliveryCoordinationPresent && (
+                  <SignaturePad
+                    label="Firma coordinacion"
+                    value={deliverySignatures.coordinador}
+                    onChange={(value) =>
+                      setDeliverySignatures((current) => ({ ...current, coordinador: value }))
+                    }
+                  />
+                )}
+                <SignaturePad
+                  label="Firma solicitante"
+                  value={deliverySignatures.solicitante}
+                  onChange={(value) =>
+                    setDeliverySignatures((current) => ({ ...current, solicitante: value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
+              {feedback && (
+                <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground sm:mr-auto">
+                  {feedback}
+                </div>
+              )}
+              <Button type="button" variant="outline" onClick={() => setDeliveryModalLoan(null)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleDeliver(deliveryModalLoan)}
+                disabled={pendingAction}
+              >
+                {deliverMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <PackageCheck className="h-4 w-4" />
+                )}
+                Registrar entrega y enviar acta
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {returnModalLoan && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+          <div className="w-full max-w-4xl rounded-md border bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b p-4">
+              <div>
+                <h2 className="text-lg font-semibold">Acta de devolucion</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {returnModalLoan.codigo} - {getLoanRequesterName(returnModalLoan)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Cerrar"
+                onClick={() => setReturnModalLoan(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <InfoBlock label="Solicitante" value={getLoanRequesterName(returnModalLoan)} />
+                  <InfoBlock label="Estado" value={formatEnum(getLoanDisplayState(returnModalLoan))} />
+                  <InfoBlock label="Devolucion estimada" value={formatDateTime(returnModalLoan.fechaDevolucionEstimada)} />
+                  <InfoBlock
+                    label="Fecha real"
+                    value={new Date() > new Date(returnModalLoan.fechaDevolucionEstimada) ? "Despues de la fecha" : "En plazo"}
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Equipo</th>
+                      <th className="px-3 py-2 text-left">Pendiente</th>
+                      <th className="px-3 py-2 text-left">Cantidad devuelta</th>
+                      <th className="px-3 py-2 text-left">Condicion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {returnModalLoan.detalles.map((detail) => {
+                      const pending = detail.cantidadEntregada - detail.cantidadDevuelta;
+                      return (
+                        <tr key={detail.id} className="border-t">
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{detail.equipo.nombre}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {detail.equipo.codigoInterno}
+                              {detail.equipoUnidad ? ` / ${detail.equipoUnidad.codigoInterno}` : ""}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">{pending}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              className="input-control max-w-28"
+                              type="number"
+                              min="0"
+                              max={pending}
+                              value={returnQuantities[detail.id] ?? ""}
+                              onChange={(event) =>
+                                setReturnQuantities((current) => ({
+                                  ...current,
+                                  [detail.id]: event.target.value
+                                }))
+                              }
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <SearchableSelect
+                              options={returnConditionOptions}
+                              value={returnConditionsByDetail[detail.id] ?? "BUENO"}
+                              onChange={(value) =>
+                                setReturnConditionsByDetail((current) => ({
+                                  ...current,
+                                  [detail.id]: value as EstadoCondicionEquipo
+                                }))
+                              }
+                              placeholder="Condicion"
+                              searchPlaceholder="Buscar condicion"
+                              emptyLabel="Condicion"
+                              disabled={pending <= 0}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Fotos de devolucion</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Opcional: adjunta fotos del estado en que se recibe el equipo.
+                    </p>
+                  </div>
+                  <label className="block text-sm font-medium">
+                    <span className="flex items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-muted-foreground">
+                      <Camera className="h-4 w-4 text-primary" />
+                      Camara o galeria
+                    </span>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      multiple
+                      onChange={(event) => void handleReturnPhotos(event.target.files)}
+                    />
+                  </label>
+                  {returnPhotos.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {returnPhotos.map((photo, index) => (
+                        <div key={`${photo.name}-${index}`} className="overflow-hidden rounded-md border bg-white">
+                          <img className="h-24 w-full object-cover" src={photo.dataUrl} alt={photo.name} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!returnPhotos.length && (
+                    <p className="rounded-md border border-dashed bg-white px-3 py-2 text-sm text-muted-foreground">
+                      Sin fotos subidas.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Observaciones</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Registra novedades, danos, faltantes o confirmacion de recibido conforme.
+                    </p>
+                  </div>
+                  <textarea
+                    className="textarea-control min-h-36"
+                    value={returnObservations}
+                    onChange={(event) => setReturnObservations(event.target.value)}
+                    placeholder="Ej. Se recibe completo y en buen estado."
+                  />
+                  {!returnObservations.trim() && (
+                    <p className="text-sm text-muted-foreground">No hubo comentarios.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-3">
+                <label className="flex items-start gap-2 text-sm font-medium">
+                  <input
+                    className="mt-1"
+                    type="checkbox"
+                    checked={!returnCoordinationPresent}
+                    onChange={(event) => {
+                      setReturnCoordinationPresent(!event.target.checked);
+                      if (event.target.checked) {
+                        setReturnSignatures((current) => ({ ...current, coordinador: "" }));
+                      }
+                    }}
+                  />
+                  <span>
+                    Coordinacion no esta presente
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                      El acta indicara que el equipo fue recibido por el usuario activo: {user?.nombre ?? "Usuario activo"} con rol: {user?.rol.nombre ?? formatEnum(user?.tipoUsuario ?? "PRACTICANTE")}.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-3">
+                {returnCoordinationPresent && (
+                  <SignaturePad
+                    label="Firma coordinacion"
+                    value={returnSignatures.coordinador}
+                    onChange={(value) =>
+                      setReturnSignatures((current) => ({ ...current, coordinador: value }))
+                    }
+                  />
+                )}
+                <SignaturePad
+                  label="Firma quien recibe"
+                  value={returnSignatures.admin}
+                  onChange={(value) =>
+                    setReturnSignatures((current) => ({ ...current, admin: value }))
+                  }
+                />
+                <SignaturePad
+                  label="Firma solicitante"
+                  value={returnSignatures.solicitante}
+                  onChange={(value) =>
+                    setReturnSignatures((current) => ({ ...current, solicitante: value }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
+              {feedback && (
+                <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground sm:mr-auto">
+                  {feedback}
+                </div>
+              )}
+              <Button type="button" variant="outline" onClick={() => setReturnModalLoan(null)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleReturn(returnModalLoan)}
+                disabled={pendingAction}
+              >
+                {returnMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                Registrar devolucion
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {publicApprovalRequest && publicApprovalForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1916,46 +2615,76 @@ export function LoansPage() {
                 </span>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Equipo real a prestar">
-                  <SearchableSelect
-                    options={equipmentOptions}
-                    value={publicApprovalForm.equipoId}
-                    onChange={(value) => updatePublicApprovalForm("equipoId", value)}
-                    placeholder="Seleccionar equipo"
-                    searchPlaceholder="Buscar por nombre, codigo o categoria"
-                    emptyLabel="Seleccionar"
-                    required
-                  />
-                </Field>
-                {approvalSelectedEquipment?.requiereSerial ? (
-                  <Field label="Unidad">
+              <label className="flex items-start gap-2 rounded-md border bg-muted/20 p-3 text-sm">
+                <input
+                  className="mt-1"
+                  type="checkbox"
+                  checked={publicApprovalForm.prestamoEspecial}
+                  onChange={(event) => updatePublicApprovalForm("prestamoEspecial", event.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Registrar como prestamo especial</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Usalo cuando el recurso solicitado no existe todavia en inventario. El prestamo queda trazable, pero no descuenta existencias.
+                  </span>
+                </span>
+              </label>
+
+              {!publicApprovalForm.prestamoEspecial && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Equipo real a prestar">
                     <SearchableSelect
-                      options={approvalUnitOptions}
-                      value={publicApprovalForm.equipoUnidadId}
-                      onChange={(value) => updatePublicApprovalForm("equipoUnidadId", value)}
-                      placeholder="Seleccionar unidad"
-                      searchPlaceholder="Buscar por codigo o serial"
+                      options={equipmentOptions}
+                      value={publicApprovalForm.equipoId}
+                      onChange={(value) => updatePublicApprovalForm("equipoId", value)}
+                      placeholder="Seleccionar equipo"
+                      searchPlaceholder="Buscar por nombre, codigo o categoria"
                       emptyLabel="Seleccionar"
                       required
                     />
                   </Field>
-                ) : (
-                  <Field label="Cantidad aprobada">
-                    <input
-                      className="input-control"
-                      type="number"
-                      min="1"
-                      max={approvalSelectedEquipment?.cantidadDisponible}
-                      value={publicApprovalForm.cantidadAprobada}
-                      onChange={(event) =>
-                        updatePublicApprovalForm("cantidadAprobada", event.target.value)
-                      }
-                      required
-                    />
-                  </Field>
-                )}
-              </div>
+                  {approvalSelectedEquipment?.requiereSerial ? (
+                    <Field label="Unidad">
+                      <SearchableSelect
+                        options={approvalUnitOptions}
+                        value={publicApprovalForm.equipoUnidadId}
+                        onChange={(value) => updatePublicApprovalForm("equipoUnidadId", value)}
+                        placeholder="Seleccionar unidad"
+                        searchPlaceholder="Buscar por codigo o serial"
+                        emptyLabel="Seleccionar"
+                        required
+                      />
+                    </Field>
+                  ) : (
+                    <Field label="Cantidad aprobada">
+                      <input
+                        className="input-control"
+                        type="number"
+                        min="1"
+                        max={approvalSelectedEquipment?.cantidadDisponible}
+                        value={publicApprovalForm.cantidadAprobada}
+                        onChange={(event) =>
+                          updatePublicApprovalForm("cantidadAprobada", event.target.value)
+                        }
+                        required
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
+
+              {publicApprovalForm.prestamoEspecial && (
+                <Field label="Cantidad aprobada">
+                  <input
+                    className="input-control"
+                    type="number"
+                    min="1"
+                    value={publicApprovalForm.cantidadAprobada}
+                    onChange={(event) => updatePublicApprovalForm("cantidadAprobada", event.target.value)}
+                    required
+                  />
+                </Field>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Uso">
@@ -1970,53 +2699,108 @@ export function LoansPage() {
                 </Field>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Materia">
-                  <SearchableSelect
-                    options={subjectOptions}
-                    value={publicApprovalForm.materiaId}
-                    onChange={(value) => updatePublicApprovalForm("materiaId", value)}
-                    placeholder="Seleccionar materia"
-                    searchPlaceholder="Buscar materia"
-                    emptyLabel="Sin materia"
-                    required={publicApprovalForm.tipoUso === "ACADEMICO"}
-                  />
-                </Field>
-                <Field label="Profesor / grupo">
-                  <SearchableSelect
-                    options={approvalSubjectProfessorOptions}
-                    value={publicApprovalForm.materiaProfesorId}
-                    onChange={(value) => updatePublicApprovalForm("materiaProfesorId", value)}
-                    placeholder="Seleccionar grupo"
-                    searchPlaceholder="Buscar profesor o grupo"
-                    emptyLabel="Sin grupo"
-                    disabled={!publicApprovalForm.materiaId}
-                  />
-                </Field>
-              </div>
+              {publicApprovalForm.tipoUso === "ACADEMICO" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Materia">
+                    <SearchableSelect
+                      options={subjectOptions}
+                      value={publicApprovalForm.materiaId}
+                      onChange={(value) => updatePublicApprovalForm("materiaId", value)}
+                      placeholder="Seleccionar materia"
+                      searchPlaceholder="Buscar materia"
+                      emptyLabel="Sin materia"
+                      required
+                    />
+                  </Field>
+                  <Field label="Profesor / grupo">
+                    <SearchableSelect
+                      options={approvalSubjectProfessorOptions}
+                      value={publicApprovalForm.materiaProfesorId}
+                      onChange={(value) => updatePublicApprovalForm("materiaProfesorId", value)}
+                      placeholder="Seleccionar grupo"
+                      searchPlaceholder="Buscar profesor o grupo"
+                      emptyLabel="Sin grupo"
+                      disabled={!publicApprovalForm.materiaId}
+                    />
+                  </Field>
+                </div>
+              )}
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Proyecto">
-                  <SearchableSelect
-                    options={projectOptions}
-                    value={publicApprovalForm.proyectoId}
-                    onChange={(value) => updatePublicApprovalForm("proyectoId", value)}
-                    placeholder="Seleccionar proyecto"
-                    searchPlaceholder="Buscar proyecto"
-                    emptyLabel="Sin proyecto"
+              {publicApprovalForm.tipoUso !== "ACADEMICO" && publicApprovalForm.tipoUso !== "OTRO" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Pertenece a">
+                    <SearchableSelect
+                      options={[
+                        { value: "PROYECTO", label: "Proyecto", searchText: "proyecto" },
+                        { value: "SEMILLERO", label: "Semillero", searchText: "semillero" },
+                        { value: "ACTIVIDAD", label: "Actividad", searchText: "actividad" }
+                      ]}
+                      value={publicApprovalForm.associationType}
+                      onChange={(value) =>
+                        updatePublicApprovalForm(
+                          "associationType",
+                          value as PublicApprovalFormState["associationType"]
+                        )
+                      }
+                      placeholder="Seleccionar"
+                      searchPlaceholder="Buscar opcion"
+                      emptyLabel="Seleccionar"
+                      required
+                    />
+                  </Field>
+                  {publicApprovalForm.associationType === "PROYECTO" && (
+                    <Field label="Proyecto">
+                      <SearchableSelect
+                        options={projectOptions}
+                        value={publicApprovalForm.proyectoId}
+                        onChange={(value) => updatePublicApprovalForm("proyectoId", value)}
+                        placeholder="Seleccionar proyecto"
+                        searchPlaceholder="Buscar proyecto"
+                        emptyLabel="Sin proyecto"
+                        required
+                      />
+                    </Field>
+                  )}
+                  {publicApprovalForm.associationType === "SEMILLERO" && (
+                    <Field label="Semillero">
+                      <SearchableSelect
+                        options={seedbedOptions}
+                        value={publicApprovalForm.semilleroId}
+                        onChange={(value) => updatePublicApprovalForm("semilleroId", value)}
+                        placeholder="Seleccionar semillero"
+                        searchPlaceholder="Buscar semillero"
+                        emptyLabel="Sin semillero"
+                        required
+                      />
+                    </Field>
+                  )}
+                  {publicApprovalForm.associationType === "ACTIVIDAD" && (
+                    <Field label="Actividad">
+                      <SearchableSelect
+                        options={activityOptions}
+                        value={publicApprovalForm.actividadId}
+                        onChange={(value) => updatePublicApprovalForm("actividadId", value)}
+                        placeholder="Seleccionar actividad"
+                        searchPlaceholder="Buscar actividad"
+                        emptyLabel="Sin actividad"
+                        required
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
+
+              {publicApprovalForm.tipoUso === "OTRO" && (
+                <Field label="Descripcion del uso">
+                  <input
+                    className="input-control"
+                    value={publicApprovalForm.otroDescripcion}
+                    onChange={(event) => updatePublicApprovalForm("otroDescripcion", event.target.value)}
+                    placeholder="Describe por que se clasifica como otro"
+                    required
                   />
                 </Field>
-                <Field label="Actividad">
-                  <SearchableSelect
-                    options={activityOptions}
-                    value={publicApprovalForm.actividadId}
-                    onChange={(value) => updatePublicApprovalForm("actividadId", value)}
-                    placeholder="Seleccionar actividad"
-                    searchPlaceholder="Buscar actividad"
-                    emptyLabel="Sin actividad"
-                  />
-                </Field>
-              </div>
+              )}
 
               <Field label="Observaciones internas">
                 <textarea
@@ -2029,6 +2813,11 @@ export function LoansPage() {
               </Field>
             </div>
             <div className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:justify-end">
+              {feedback && (
+                <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground sm:mr-auto">
+                  {feedback}
+                </div>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -2074,6 +2863,15 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div className="rounded-md bg-muted px-2 py-1">
       <div className="font-semibold">{value}</div>
       <div className="text-[10px] text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium">{value}</p>
     </div>
   );
 }
@@ -2228,17 +3026,46 @@ function getLoanAcademicContext(loan: Loan) {
   const parts = [
     loan.materia ? `${loan.materia.codigo} - ${loan.materia.nombre}` : "",
     loan.materiaProfesor
-      ? `${loan.materiaProfesor.profesor.nombre} / ${loan.materiaProfesor.grupo}`
+      ? `${subjectProfessorOptionName(loan.materiaProfesor)} / ${loan.materiaProfesor.grupo}`
       : "",
     loan.proyecto ? `Proyecto: ${loan.proyecto.nombre}` : "",
+    loan.semillero ? `Semillero: ${loan.semillero.nombre}` : "",
     loan.actividad ? `Actividad: ${loan.actividad.nombre}` : ""
   ].filter(Boolean);
 
   return parts.length ? parts.join(" | ") : "Sin contexto academico";
 }
 
+function subjectProfessorOptionName(
+  professor: Pick<SubjectProfessor, "profesor" | "profesorPersona">
+) {
+  return professor.profesor?.nombre ?? professor.profesorPersona?.nombre ?? "Profesor";
+}
+
+function subjectProfessorOptionEmail(
+  professor: Pick<SubjectProfessor, "profesor" | "profesorPersona">
+) {
+  return professor.profesor?.correo ?? professor.profesorPersona?.correoInstitucional ?? "";
+}
+
 function canReturn(state: EstadoPrestamo) {
   return state === "ENTREGADO" || state === "DEVUELTO_PARCIAL" || state === "VENCIDO";
+}
+
+function hasPendingReturn(loan: Loan) {
+  return loan.detalles.some((detail) => detail.cantidadEntregada - detail.cantidadDevuelta > 0);
+}
+
+function getLoanDisplayState(loan: Loan): EstadoPrestamo {
+  if (
+    canReturn(loan.estado) &&
+    loan.estado !== "VENCIDO" &&
+    hasPendingReturn(loan) &&
+    new Date(loan.fechaDevolucionEstimada) < new Date()
+  ) {
+    return "VENCIDO";
+  }
+  return loan.estado;
 }
 
 function calculateLoanDays(startValue: string, endValue: string) {

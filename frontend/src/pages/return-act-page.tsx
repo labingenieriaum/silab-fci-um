@@ -89,7 +89,11 @@ export function ReturnActPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => void downloadApiFile(`/reports/acts/returns/${returnId}.pdf`, `acta-devolucion-${returnId}.pdf`)}
+            onClick={() => {
+              if (window.confirm("Quieres descargar el PDF del acta de devolucion?")) {
+                void downloadApiFile(`/reports/acts/returns/${returnId}.pdf`, `acta-devolucion-${returnId}.pdf`);
+              }
+            }}
           >
             <Download className="h-4 w-4" />
             Descargar PDF
@@ -122,15 +126,26 @@ export function ReturnActPage() {
       )}
 
       {act && (
-        <Card className="print:border-none print:shadow-none">
-          <CardHeader className="border-b">
-            <div className="flex items-center gap-3">
-              <img className="h-14 w-14 rounded-md bg-white object-contain" src="/assets/logo-mark.png" alt="SILAB FCI" />
-              <div>
-                <CardTitle>Acta de devolucion #{act.id}</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Prestamo {act.prestamo.codigo} - {formatDateTime(act.fechaDevolucion)}
-                </p>
+        <Card className="overflow-hidden print:border-none print:shadow-none">
+          <CardHeader className="border-b bg-[#103b25] p-0 text-white">
+            <div className="relative overflow-hidden p-8">
+              <div className="absolute inset-0 opacity-20 [background-image:radial-gradient(#a8c66c_1px,transparent_1px)] [background-size:22px_22px]" />
+              <div className="relative flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+                <div className="flex items-center gap-4">
+                  <img className="h-16 w-16 rounded-md bg-white object-contain p-1" src="/assets/logo-mark.png" alt="SILAB FCI" />
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-wide text-[#b6d37b]">SILAB FCI</p>
+                    <CardTitle className="text-2xl text-white">Acta de devolucion</CardTitle>
+                    <p className="mt-1 text-sm text-white/80">Facultad de Ciencias e Ingenieria</p>
+                  </div>
+                </div>
+                <div className="rounded-md bg-[#aeca6f] px-4 py-3 text-[#10201a]">
+                  <p className="text-xs font-bold uppercase">Devolucion</p>
+                  <p className="text-lg font-bold">#{act.id}</p>
+                </div>
+              </div>
+              <div className="relative mt-8 border-t border-white/25 pt-4 text-sm text-white/80">
+                Prestamo {act.prestamo.codigo} - {formatDateTime(act.fechaDevolucion)}
               </div>
             </div>
           </CardHeader>
@@ -172,24 +187,44 @@ export function ReturnActPage() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fotos</h2>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {photos.map((photo) => (
-                  <img key={photo.id} className="h-40 w-full rounded-md border object-cover" src={photo.contenidoBase64} alt={photo.nombreArchivo ?? "Foto de devolucion"} />
-                ))}
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Observaciones</h2>
+              <div className="rounded-md border bg-muted/20 px-3 py-3 text-sm">
+                {act.observaciones?.trim() || "No hubo comentarios."}
               </div>
             </section>
 
             <section>
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Fotos</h2>
+              {photos.length ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {photos.map((photo) => (
+                    <img key={photo.id} className="h-40 w-full rounded-md border object-cover" src={photo.contenidoBase64} alt={photo.nombreArchivo ?? "Foto de devolucion"} />
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                  Sin fotos subidas.
+                </p>
+              )}
+            </section>
+
+            <section>
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Firmas</h2>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {signatures.map((signature) => (
-                  <div key={signature.id} className="rounded-md border p-3">
-                    <img className="h-24 w-full object-contain" src={signature.contenidoBase64} alt={signature.firmanteNombre ?? signature.tipo} />
-                    <p className="mt-2 text-center text-xs font-medium">{signature.firmanteNombre ?? formatEnum(signature.tipo)}</p>
-                  </div>
-                ))}
-              </div>
+              {signatures.length ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {signatures.map((signature) => (
+                    <div key={signature.id} className="rounded-md border bg-white p-3">
+                      <img className="h-28 w-full object-contain" src={signature.contenidoBase64} alt={signature.firmanteNombre ?? signature.tipo} />
+                      <p className="mt-2 text-center text-xs font-medium">{signature.firmanteNombre ?? formatEnum(signature.tipo)}</p>
+                      <p className="text-center text-[11px] text-muted-foreground">{formatEnum(signature.tipo)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                  No hay firmas registradas.
+                </p>
+              )}
             </section>
           </CardContent>
         </Card>

@@ -51,6 +51,11 @@ export class DeliverLoanEvidenceDto {
 }
 
 export class DeliverLoanDto {
+  @IsString()
+  @IsOptional()
+  @MaxLength(1200)
+  observaciones?: string | null;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => DeliverLoanDetailDto)
@@ -58,7 +63,7 @@ export class DeliverLoanDto {
   detalles?: DeliverLoanDetailDto[];
 
   @IsArray()
-  @ArrayMinSize(3)
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => DeliverLoanEvidenceDto)
   evidencias!: DeliverLoanEvidenceDto[];

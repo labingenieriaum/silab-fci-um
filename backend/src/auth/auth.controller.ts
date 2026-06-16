@@ -35,7 +35,7 @@ export class AuthController {
   @Post("logout")
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     await this.authService.logout(request.cookies?.refreshToken);
-    response.clearCookie("refreshToken");
+    response.clearCookie("refreshToken", this.getRefreshCookieOptions());
     return { status: "ok" };
   }
 
@@ -45,13 +45,19 @@ export class AuthController {
   }
 
   private setRefreshCookie(response: Response, token: string) {
-    response.cookie("refreshToken", token, {
+    response.cookie("refreshToken", token, this.getRefreshCookieOptions());
+  }
+
+  private getRefreshCookieOptions() {
+    const sameSite = process.env.COOKIE_SAME_SITE ?? "strict";
+
+    return {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: sameSite as "strict" | "lax" | "none",
       secure: process.env.NODE_ENV === "production",
       path: "/api/v1/auth",
       maxAge: 7 * 24 * 60 * 60 * 1000
-    });
+    };
   }
 }
 

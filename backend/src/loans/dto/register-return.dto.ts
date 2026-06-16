@@ -64,7 +64,7 @@ export class RegisterReturnDto {
   detalles!: RegisterReturnDetailDto[];
 
   @IsArray()
-  @ArrayMinSize(4)
+  @ArrayMinSize(2)
   @ValidateNested({ each: true })
   @Type(() => RegisterReturnEvidenceDto)
   evidencias!: RegisterReturnEvidenceDto[];

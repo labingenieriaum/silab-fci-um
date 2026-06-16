@@ -1,6 +1,7 @@
 export type TipoUsuario =
   | "ADMINISTRADOR"
   | "COORDINACION_LABORATORIOS"
+  | "PRACTICANTE"
   | "DECANO"
   | "DIRECTOR_PROGRAMA"
   | "PROFESOR"
