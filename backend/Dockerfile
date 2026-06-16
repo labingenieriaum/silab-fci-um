@@ -11,6 +11,10 @@ RUN npm ci
 COPY schema_silab_fci.prisma ./schema_silab_fci.prisma
 COPY backend ./backend
 
+# Prisma 7 loads prisma.config.ts during generate and requires a valid
+# DATABASE_URL even though it does not connect to the database here.
+ENV DATABASE_URL=postgresql://prisma:prisma@localhost:5432/prisma?schema=public
+
 RUN npm run prisma:generate --workspace @silab/backend
 RUN npm run build --workspace @silab/backend
 
