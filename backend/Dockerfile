@@ -29,6 +29,7 @@ COPY --from=build /app/schema_silab_fci.prisma ./schema_silab_fci.prisma
 COPY --from=build /app/backend/package*.json ./backend/
 COPY --from=build /app/backend/dist ./backend/dist
 COPY --from=build /app/backend/prisma ./backend/prisma
+COPY --from=build /app/backend/src/prisma ./backend/src/prisma
 COPY --from=build /app/backend/prisma.config.ts ./backend/prisma.config.ts
 
 WORKDIR /app/backend
