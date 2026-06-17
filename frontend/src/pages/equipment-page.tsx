@@ -881,9 +881,10 @@ function parseCsv(text: string) {
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
   const [headerLine, ...dataLines] = lines;
   if (!headerLine) return [];
-  const headers = parseCsvLine(headerLine).map((header) => header.trim());
+  const delimiter = detectCsvDelimiter(headerLine);
+  const headers = parseCsvLine(headerLine, delimiter).map((header) => header.trim());
   return dataLines.map((line) => {
-    const values = parseCsvLine(line);
+    const values = parseCsvLine(line, delimiter);
     return headers.reduce<Record<string, string>>((acc, header, index) => {
       acc[header] = values[index]?.trim() ?? "";
       return acc;
@@ -891,7 +892,11 @@ function parseCsv(text: string) {
   });
 }
 
-function parseCsvLine(line: string) {
+function detectCsvDelimiter(line: string) {
+  return line.split(";").length >= line.split(",").length ? ";" : ",";
+}
+
+function parseCsvLine(line: string, delimiter = ";") {
   const values: string[] = [];
   let current = "";
   let quoted = false;
@@ -908,7 +913,7 @@ function parseCsvLine(line: string) {
       quoted = !quoted;
       continue;
     }
-    if (char === "," && !quoted) {
+    if (char === delimiter && !quoted) {
       values.push(current);
       current = "";
       continue;
@@ -930,9 +935,9 @@ function downloadCsvFile(filename: string, rows: Array<Array<string | number>>) 
       row
         .map((value) => {
           const text = String(value ?? "");
-          return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+          return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
         })
-        .join(",")
+        .join(";")
     )
     .join("\r\n");
   const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
