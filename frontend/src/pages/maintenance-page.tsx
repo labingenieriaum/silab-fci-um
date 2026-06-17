@@ -387,7 +387,7 @@ export function MaintenancePage() {
                       value={form.equipoUnidadId}
                       onChange={(value) => updateForm("equipoUnidadId", value)}
                       placeholder="Seleccionar unidad"
-                      searchPlaceholder="Buscar por codigo, serial o estado"
+                    searchPlaceholder="Buscar por codigo de etiqueta o estado"
                       emptyLabel="Seleccionar"
                       required
                     />

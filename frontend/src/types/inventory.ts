@@ -105,6 +105,7 @@ export interface Equipment {
   marca: string | null;
   modelo: string | null;
   requiereSerial: boolean;
+  permitePrestamo: boolean;
   cantidadTotal: number;
   cantidadDisponible: number;
   cantidadPrestada: number;

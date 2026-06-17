@@ -53,6 +53,10 @@ export class UpdateEquipmentDto {
   @IsOptional()
   requiereSerial?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  permitePrestamo?: boolean;
+
   @IsEnum(EstadoEquipo)
   @IsOptional()
   estado?: EstadoEquipo;

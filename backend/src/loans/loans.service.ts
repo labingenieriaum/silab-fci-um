@@ -230,6 +230,7 @@ const loanSelect = {
           codigoInterno: true,
           nombre: true,
           requiereSerial: true,
+          permitePrestamo: true,
           cantidadDisponible: true,
           cantidadPrestada: true,
           ubicacion: {
@@ -321,6 +322,7 @@ export class LoansService {
     return this.prisma.equipo.findMany({
       where: {
         deletedAt: null,
+        permitePrestamo: true,
         cantidadDisponible: { gt: 0 },
         estado: EstadoEquipo.DISPONIBLE,
         OR: normalizedSearch
@@ -338,6 +340,7 @@ export class LoansService {
         nombre: true,
         cantidadDisponible: true,
         requiereSerial: true,
+        permitePrestamo: true,
         categoria: {
           select: {
             nombre: true
@@ -453,6 +456,7 @@ export class LoansService {
       where: {
         id: dto.equipoId,
         deletedAt: null,
+        permitePrestamo: true,
         cantidadDisponible: { gt: 0 },
         estado: EstadoEquipo.DISPONIBLE
       },
@@ -1454,6 +1458,7 @@ export class LoansService {
       where: {
         id: equipmentId,
         deletedAt: null,
+        permitePrestamo: true,
         ubicacion: {
           laboratorio: {
             facultadId: scopedFacultyId
@@ -1465,12 +1470,13 @@ export class LoansService {
         codigoInterno: true,
         nombre: true,
         requiereSerial: true,
+        permitePrestamo: true,
         cantidadDisponible: true
       }
     });
 
     if (!equipment) {
-      throw new BadRequestException("El equipo indicado no existe o no pertenece a tu facultad.");
+      throw new BadRequestException("El equipo indicado no existe, no pertenece a tu facultad o no esta habilitado para prestamos.");
     }
 
     return equipment;

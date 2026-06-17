@@ -391,12 +391,14 @@ export function LoansPage() {
 
   const equipmentOptions = useMemo(
     () =>
-      equipment.map((item) => ({
-        value: String(item.id),
-        label: `${item.codigoInterno} - ${item.nombre} (${item.cantidadDisponible})`,
-        description: item.categoria?.nombre,
-        searchText: `${item.codigoInterno} ${item.codigoBarras ?? ""} ${item.nombre} ${item.categoria?.nombre ?? ""}`
-      })),
+      equipment
+        .filter((item) => item.permitePrestamo && item.cantidadDisponible > 0)
+        .map((item) => ({
+          value: String(item.id),
+          label: `${item.codigoInterno} - ${item.nombre} (${item.cantidadDisponible})`,
+          description: item.categoria?.nombre,
+          searchText: `${item.codigoInterno} ${item.codigoBarras ?? ""} ${item.nombre} ${item.categoria?.nombre ?? ""}`
+        })),
     [equipment]
   );
 
@@ -1067,7 +1069,7 @@ export function LoansPage() {
       approvalSelectedEquipment?.requiereSerial &&
       !publicApprovalForm.equipoUnidadId
     ) {
-      setFeedback("Selecciona la unidad del equipo serializado.");
+      setFeedback("Selecciona la unidad identificada del equipo.");
       return;
     }
     if (new Date(publicApprovalForm.fechaDevolucionEstimada) <= new Date(publicApprovalForm.fechaPrestamo)) {
@@ -1749,7 +1751,7 @@ export function LoansPage() {
                         value={form.equipoUnidadId}
                         onChange={(value) => updateForm("equipoUnidadId", value)}
                         placeholder="Seleccionar unidad"
-                        searchPlaceholder="Buscar por codigo o serial"
+                        searchPlaceholder="Buscar por codigo de etiqueta"
                         emptyLabel="Seleccionar"
                         required
                       />
@@ -2650,7 +2652,7 @@ export function LoansPage() {
                         value={publicApprovalForm.equipoUnidadId}
                         onChange={(value) => updatePublicApprovalForm("equipoUnidadId", value)}
                         placeholder="Seleccionar unidad"
-                        searchPlaceholder="Buscar por codigo o serial"
+                        searchPlaceholder="Buscar por codigo de etiqueta"
                         emptyLabel="Seleccionar"
                         required
                       />
@@ -3104,3 +3106,4 @@ function fileToDataUrl(file: File) {
     reader.readAsDataURL(file);
   });
 }
+

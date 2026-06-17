@@ -79,6 +79,7 @@ const equipmentSelect = {
   marca: true,
   modelo: true,
   requiereSerial: true,
+  permitePrestamo: true,
   cantidadTotal: true,
   cantidadDisponible: true,
   cantidadPrestada: true,
@@ -401,6 +402,7 @@ export class InventoryService {
             marca: cleanNullableText(dto.marca),
             modelo: cleanNullableText(dto.modelo),
             requiereSerial: requiresSerial,
+            permitePrestamo: dto.permitePrestamo ?? false,
             cantidadTotal: total,
             cantidadDisponible: total,
             cantidadPrestada: 0,
@@ -441,7 +443,8 @@ export class InventoryService {
             metadata: {
               codigoInterno: dto.codigoInterno.trim().toUpperCase(),
               codigoBarras: cleanOptionalIdentifier(dto.codigoBarras),
-              requiereSerial: requiresSerial
+              requiereSerial: requiresSerial,
+              permitePrestamo: dto.permitePrestamo ?? false
             }
           }
         });
@@ -452,7 +455,7 @@ export class InventoryService {
         });
       });
     } catch (error) {
-      handleKnownDatabaseError(error, "Ya existe un equipo o unidad con ese codigo, codigo de barras o serial.");
+      handleKnownDatabaseError(error, "Ya existe un equipo o unidad con ese codigo, codigo de barras o identificador.");
     }
   }
 
@@ -494,7 +497,7 @@ export class InventoryService {
 
     if (dto.requiereSerial && current.unidades.length !== current.cantidadTotal) {
       throw new BadRequestException(
-        "Para marcar serial obligatorio debe existir una unidad por cada item del equipo."
+        "Para activar control individual debe existir una unidad por cada item del equipo."
       );
     }
     if (dto.ubicacionId) {
@@ -515,6 +518,7 @@ export class InventoryService {
           marca: dto.marca === undefined ? undefined : cleanNullableText(dto.marca),
           modelo: dto.modelo === undefined ? undefined : cleanNullableText(dto.modelo),
           requiereSerial: dto.requiereSerial,
+          permitePrestamo: dto.permitePrestamo,
           estado: dto.estado,
           valorEstimado: dto.valorEstimado,
           observaciones:
@@ -619,7 +623,7 @@ export class InventoryService {
         return unit;
       });
     } catch (error) {
-      handleKnownDatabaseError(error, "Ya existe una unidad con ese codigo o serial.");
+      handleKnownDatabaseError(error, "Ya existe una unidad con ese codigo o identificador.");
     }
   }
 
@@ -666,7 +670,7 @@ export class InventoryService {
         return updated;
       });
     } catch (error) {
-      handleKnownDatabaseError(error, "Ya existe una unidad con ese codigo o serial.");
+      handleKnownDatabaseError(error, "Ya existe una unidad con ese codigo o identificador.");
     }
   }
 
@@ -747,7 +751,7 @@ export class InventoryService {
     }
     if (equipment.requiereSerial) {
       throw new BadRequestException(
-        "Los equipos serializados deben ingresar por unidades individuales."
+        "Los equipos con control individual deben ingresar por unidades individuales."
       );
     }
 
@@ -798,7 +802,7 @@ export class InventoryService {
     const equipment = await this.ensureEquipmentExists(user, dto.equipoId);
     if (equipment.requiereSerial) {
       throw new BadRequestException(
-        "Los ajustes de equipos serializados deben hacerse sobre unidades individuales."
+        "Los ajustes de equipos con control individual deben hacerse sobre unidades individuales."
       );
     }
 
@@ -887,7 +891,7 @@ export class InventoryService {
     }
 
     if (equipment.requiereSerial) {
-      throw new BadRequestException("Selecciona una unidad para trasladar un equipo serializado.");
+      throw new BadRequestException("Selecciona una unidad para trasladar un equipo con control individual.");
     }
 
     if (dto.cantidad !== equipment.cantidadDisponible) {
@@ -1028,7 +1032,7 @@ export class InventoryService {
 
     if (requiresSerial && units.length !== total) {
       throw new BadRequestException(
-        "Los equipos serializados requieren una unidad fisica por cada cantidad registrada."
+        "Los equipos con control individual requieren una unidad fisica por cada cantidad registrada."
       );
     }
   }

@@ -68,6 +68,10 @@ export class CreateEquipmentDto {
   @IsOptional()
   requiereSerial?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  permitePrestamo?: boolean;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)

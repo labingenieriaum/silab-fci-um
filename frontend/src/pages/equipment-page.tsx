@@ -51,6 +51,7 @@ interface EquipmentFormState {
   marca: string;
   modelo: string;
   requiereSerial: boolean;
+  permitePrestamo: boolean;
   cantidadTotal: string;
   valorEstimado: string;
   observaciones: string;
@@ -66,6 +67,7 @@ const initialForm: EquipmentFormState = {
   marca: "",
   modelo: "",
   requiereSerial: false,
+  permitePrestamo: false,
   cantidadTotal: "1",
   valorEstimado: "0",
   observaciones: "",
@@ -117,13 +119,14 @@ export function EquipmentPage() {
           marca: payload.marca || undefined,
           modelo: payload.modelo || undefined,
           requiereSerial: payload.requiereSerial,
+          permitePrestamo: payload.permitePrestamo,
           cantidadTotal: Number(payload.cantidadTotal),
           valorEstimado: Number(payload.valorEstimado || 0),
           observaciones: payload.observaciones || undefined,
           unidades: payload.requiereSerial
             ? payload.unidades.map((unit) => ({
                 codigoInterno: unit.codigoInterno,
-                serial: unit.serial || undefined,
+                serial: undefined,
                 ubicacionId,
                 observaciones: unit.observaciones || undefined
               }))
@@ -154,6 +157,7 @@ export function EquipmentPage() {
           nombre: payload.nombre,
           marca: payload.marca,
           modelo: payload.modelo,
+          permitePrestamo: payload.permitePrestamo,
           valorEstimado: Number(payload.valorEstimado || 0),
           observaciones: payload.observaciones
         })
@@ -268,6 +272,7 @@ export function EquipmentPage() {
       marca: item.marca ?? "",
       modelo: item.modelo ?? "",
       requiereSerial: item.requiereSerial,
+      permitePrestamo: item.permitePrestamo,
       cantidadTotal: String(item.cantidadTotal),
       valorEstimado: String(item.valorEstimado ?? 0),
       observaciones: item.observaciones ?? "",
@@ -304,7 +309,7 @@ export function EquipmentPage() {
       return;
     }
     if (!isEditing && form.requiereSerial && form.unidades.some((unit) => !unit.codigoInterno.trim())) {
-      setFeedback("Cada unidad serializada requiere codigo interno.");
+      setFeedback("Cada unidad individual requiere el codigo unico de la etiqueta institucional.");
       return;
     }
     if (editingEquipment) {
@@ -325,6 +330,7 @@ export function EquipmentPage() {
       "marca",
       "modelo",
       "requiereSerial",
+      "permitePrestamo",
       "cantidadTotal",
       "valorEstimado",
       "observaciones"
@@ -338,6 +344,7 @@ export function EquipmentPage() {
       "",
       "",
       "",
+      "false",
       "false",
       "1",
       "0",
@@ -361,6 +368,7 @@ export function EquipmentPage() {
           marca: row.marca?.trim() || undefined,
           modelo: row.modelo?.trim() || undefined,
           requiereSerial: parseCsvBoolean(row.requiereSerial),
+          permitePrestamo: parseCsvBoolean(row.permitePrestamo),
           cantidadTotal: Number(row.cantidadTotal || 1),
           valorEstimado: Number(row.valorEstimado || 0),
           observaciones: row.observaciones?.trim() || undefined
@@ -396,7 +404,7 @@ export function EquipmentPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-normal">Equipos</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Registro de equipos, cantidades, estados, seriales y ubicacion responsable.
+            Registro de equipos, cantidades, identificadores institucionales y ubicacion responsable.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -480,7 +488,18 @@ export function EquipmentPage() {
                         <div className="font-medium">{item.nombre}</div>
                         <div className="text-xs text-muted-foreground">
                           {item.codigoInterno}
-                          {item.requiereSerial ? ` - ${item._count.unidades} unidades` : ""}
+                          {item.requiereSerial ? ` - ${item._count.unidades} unidades identificadas` : ""}
+                        </div>
+                        <div className="mt-1">
+                          <span
+                            className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${
+                              item.permitePrestamo
+                                ? "bg-green-50 text-green-700"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {item.permitePrestamo ? "Disponible para prestamos" : "Solo inventario fijo"}
+                          </span>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
                           {item.codigoBarras && (
@@ -679,15 +698,28 @@ export function EquipmentPage() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-[1fr_150px] sm:items-end">
-                <label className="flex h-10 items-center gap-2 rounded-md border bg-card px-3 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={form.requiereSerial}
-                    disabled={isEditing}
-                    onChange={(event) => updateForm("requiereSerial", event.target.checked)}
-                  />
-                  Requiere serial
-                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex min-h-10 items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={form.permitePrestamo}
+                      onChange={(event) => updateForm("permitePrestamo", event.target.checked)}
+                    />
+                    Disponible para prestamos
+                  </label>
+                  <label className="flex min-h-10 items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={form.requiereSerial}
+                      disabled={isEditing}
+                      onChange={(event) => updateForm("requiereSerial", event.target.checked)}
+                    />
+                    Control individual por etiqueta
+                  </label>
+                  <p className="sm:col-span-2 text-xs text-muted-foreground">
+                    Marca "Disponible para prestamos" solo si el equipo puede salir en solicitudes. Activos fijos de laboratorio, como pantallas de aula, pueden quedar como inventario fijo.
+                  </p>
+                </div>
                 <Field label="Cantidad">
                   <input
                     className="input-control"
@@ -703,21 +735,20 @@ export function EquipmentPage() {
 
               {!isEditing && form.requiereSerial && (
                 <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-                  <p className="text-sm font-medium">Unidades serializadas</p>
+                  <div>
+                    <p className="text-sm font-medium">Codigos unicos de unidades</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Registra el codigo de la etiqueta institucional de cada unidad. Ejemplo: 2805006622.
+                    </p>
+                  </div>
                   {form.unidades.map((unit, index) => (
-                    <div key={index} className="grid gap-2 sm:grid-cols-3">
+                    <div key={index} className="grid gap-2 sm:grid-cols-[220px_minmax(0,1fr)]">
                       <input
                         className="input-control"
-                        placeholder={`Codigo unidad ${index + 1}`}
+                        placeholder={`Codigo etiqueta ${index + 1}`}
                         value={unit.codigoInterno}
                         onChange={(event) => updateUnit(index, "codigoInterno", event.target.value)}
                         required
-                      />
-                      <input
-                        className="input-control"
-                        placeholder="Serial"
-                        value={unit.serial}
-                        onChange={(event) => updateUnit(index, "serial", event.target.value)}
                       />
                       <input
                         className="input-control"

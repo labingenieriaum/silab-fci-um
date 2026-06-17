@@ -400,6 +400,7 @@ model Equipo {
   marca                 String?
   modelo                String?
   requiereSerial        Boolean      @default(false) @map("requiere_serial")
+  permitePrestamo       Boolean      @default(true) @map("permite_prestamo")
   cantidadTotal         Int          @default(1) @map("cantidad_total")
   cantidadDisponible    Int          @default(1) @map("cantidad_disponible")
   cantidadPrestada      Int          @default(0) @map("cantidad_prestada")
