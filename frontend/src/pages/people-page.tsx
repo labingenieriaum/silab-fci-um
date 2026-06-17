@@ -220,7 +220,7 @@ export function PeoplePage() {
     if (!file) return;
     setFeedback(null);
     try {
-      const rows = parsePeopleCsv(await file.text());
+      const rows = parsePeopleCsv(await file.text(), programs, faculties);
       if (!rows.length) {
         setFeedback("El CSV no tiene filas validas.");
         return;
@@ -232,12 +232,92 @@ export function PeoplePage() {
   }
 
   function downloadCsvTemplate() {
-    const content = [
-      "codigo;nombre;correo;carrera;semestre;rol",
-      "123456;Nombre Completo;correo@umanizales.edu.co;Ingenieria de Sistemas;3;estudiante",
-      "DOC001;Nombre Docente;docente@umanizales.edu.co;Facultad de Ciencias e Ingenieria;;profesor",
-      "ADM001;Nombre Administrativo;admin@umanizales.edu.co;Laboratorios FCI;;administrativo"
-    ].join("\n");
+    const header = [
+      "tipoFila",
+      "codigo",
+      "nombre",
+      "correo",
+      "rol",
+      "programaId",
+      "programaNombre",
+      "facultadId",
+      "facultadNombre",
+      "dependencia",
+      "semestre"
+    ];
+    const programRows = programs.map((program) => [
+      "REFERENCIA_PROGRAMA",
+      "",
+      "",
+      "",
+      "estudiante",
+      program.id,
+      program.nombre,
+      program.facultadId,
+      program.facultad?.nombre ?? "",
+      "",
+      ""
+    ]);
+    const facultyRows = faculties.map((faculty) => [
+      "REFERENCIA_FACULTAD",
+      "",
+      "",
+      "",
+      "profesor",
+      "",
+      "",
+      faculty.id,
+      faculty.nombre,
+      "",
+      ""
+    ]);
+    const exampleProgram = programs[0];
+    const exampleFaculty = faculties[0];
+    const rows = [
+      header,
+      ...programRows,
+      ...facultyRows,
+      [
+        "EJEMPLO",
+        "123456",
+        "Nombre Estudiante",
+        "estudiante@umanizales.edu.co",
+        "estudiante",
+        exampleProgram?.id ?? "",
+        exampleProgram?.nombre ?? "",
+        "",
+        "",
+        "",
+        "3"
+      ],
+      [
+        "EJEMPLO",
+        "DOC001",
+        "Nombre Docente",
+        "docente@umanizales.edu.co",
+        "profesor",
+        "",
+        "",
+        exampleFaculty?.id ?? "",
+        exampleFaculty?.nombre ?? "",
+        "",
+        ""
+      ],
+      [
+        "EJEMPLO",
+        "ADM001",
+        "Nombre Administrativo",
+        "admin@umanizales.edu.co",
+        "administrativo",
+        "",
+        "",
+        "",
+        "",
+        "Laboratorios FCI",
+        ""
+      ]
+    ];
+    const content = buildCsvContent(rows);
     const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -552,30 +632,72 @@ function personAffiliationLabel(role: RolPersonaPrestamo) {
   return "Programa / carrera";
 }
 
-function parsePeopleCsv(content: string): PersonPayload[] {
+function parsePeopleCsv(content: string, programs: Programa[], faculties: Facultad[]): PersonPayload[] {
   const rows = parseCsvRows(content).filter((row) => row.some((cell) => cell.trim()));
   if (rows.length < 2) {
     return [];
   }
   const headers = rows[0].map(normalizeHeader);
-  return rows.slice(1).map((row, index) => {
+  const people: PersonPayload[] = [];
+
+  rows.slice(1).forEach((row, index) => {
     const record = Object.fromEntries(headers.map((header, column) => [header, row[column]?.trim() ?? ""]));
+    const tipoFila = normalizeHeader(record.tipofila);
+    if (tipoFila.startsWith("referencia") || tipoFila.startsWith("ejemplo")) {
+      return;
+    }
     const rol = normalizeRole(record.rol);
     const codigo = record.codigo;
     const nombre = record.nombre;
     if (!codigo || !nombre || !rol) {
       throw new Error(`Fila ${index + 2}: codigo, nombre y rol son obligatorios.`);
     }
-    return {
+    people.push({
       codigo,
       nombre,
       correoInstitucional: record.correo || record.correoinstitucional || null,
-      carrera: record.carrera || null,
+      carrera: resolvePersonAffiliation(record, rol, programs, faculties),
       semestre: rol === "ESTUDIANTE" && record.semestre ? Number(record.semestre) : null,
       rol,
       activo: true
-    };
+    });
   });
+
+  return people;
+}
+
+function resolvePersonAffiliation(
+  record: Record<string, string>,
+  rol: RolPersonaPrestamo,
+  programs: Programa[],
+  faculties: Facultad[]
+) {
+  if (rol === "ESTUDIANTE") {
+    const programById = record.programaid
+      ? programs.find((program) => program.id === Number(record.programaid))
+      : undefined;
+    return programById?.nombre ?? record.programanombre ?? record.carrera ?? null;
+  }
+  if (rol === "PROFESOR") {
+    const facultyById = record.facultadid
+      ? faculties.find((faculty) => faculty.id === Number(record.facultadid))
+      : undefined;
+    return facultyById?.nombre ?? record.facultadnombre ?? record.carrera ?? null;
+  }
+  return record.dependencia || record.carrera || null;
+}
+
+function buildCsvContent(rows: Array<Array<string | number>>) {
+  return rows
+    .map((row) =>
+      row
+        .map((value) => {
+          const text = String(value ?? "");
+          return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+        })
+        .join(";")
+    )
+    .join("\r\n");
 }
 
 function parseCsvRows(content: string) {

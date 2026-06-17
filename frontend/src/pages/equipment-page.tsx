@@ -97,7 +97,7 @@ export function EquipmentPage() {
 
   const locationsQuery = useQuery({
     queryKey: ["locations"],
-    queryFn: () => apiRequest<PaginatedResponse<Location>>("/locations?page=1&pageSize=100")
+    queryFn: () => apiRequest<PaginatedResponse<Location>>("/locations?page=1&pageSize=1000")
   });
 
   const laboratoriesQuery = useQuery({
@@ -321,9 +321,11 @@ export function EquipmentPage() {
 
   function downloadCsvTemplate() {
     const header = [
+      "tipoFila",
       "categoriaId",
       "categoriaNombre",
       "ubicacionId",
+      "ubicacionRuta",
       "codigoInterno",
       "codigoBarras",
       "nombre",
@@ -339,8 +341,10 @@ export function EquipmentPage() {
       "unidadObservaciones"
     ];
     const categoryRows = categories.map((category) => [
+      "REFERENCIA_CATEGORIA",
       category.id,
       category.nombre,
+      "",
       "",
       "",
       "",
@@ -357,9 +361,11 @@ export function EquipmentPage() {
       ""
     ]);
     const locationRows = locations.map((location) => [
+      "REFERENCIA_UBICACION",
       "",
       "",
       location.id,
+      formatLocationPathById(location.id, locations),
       "",
       "",
       "",
@@ -377,9 +383,11 @@ export function EquipmentPage() {
     const exampleLocationId = locations[0]?.id ?? "";
     const exampleRows = [
       [
+        "EJEMPLO",
         categories[0]?.id ?? 1,
         categories[0]?.nombre ?? "Activo Fijo",
         exampleLocationId,
+        exampleLocationId ? formatLocationPathById(Number(exampleLocationId), locations) : "",
         "PANT-HP-C204",
         "",
         "Pantalla HP",
@@ -395,9 +403,11 @@ export function EquipmentPage() {
         "Pantalla 1"
       ],
       [
+        "EJEMPLO",
         categories[0]?.id ?? 1,
         categories[0]?.nombre ?? "Activo Fijo",
         exampleLocationId,
+        exampleLocationId ? formatLocationPathById(Number(exampleLocationId), locations) : "",
         "PANT-HP-C204",
         "",
         "Pantalla HP",
@@ -420,6 +430,10 @@ export function EquipmentPage() {
     const grouped = new Map<string, Record<string, unknown> & { unidades?: Array<Record<string, unknown>> }>();
 
     for (const row of csvRows) {
+      const tipoFila = normalizeCsvToken(row.tipoFila);
+      if (tipoFila.startsWith("referencia") || tipoFila.startsWith("ejemplo")) {
+        continue;
+      }
       const codigoInterno = row.codigoInterno?.trim();
       const nombre = row.nombre?.trim();
       const categoriaId = Number(row.categoriaId);
@@ -1085,6 +1099,14 @@ function parseCsvLine(line: string, delimiter = ";") {
 
 function parseCsvBoolean(value?: string) {
   return ["1", "si", "sí", "true", "x"].includes((value ?? "").trim().toLowerCase());
+}
+
+function normalizeCsvToken(value?: string) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function downloadCsvFile(filename: string, rows: Array<Array<string | number>>) {
