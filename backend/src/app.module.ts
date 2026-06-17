@@ -6,6 +6,7 @@ import { AppController } from "./app.controller";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { LaboratoriesModule } from "./laboratories/laboratories.module";
 import { LoansModule } from "./loans/loans.module";
@@ -31,6 +32,7 @@ import { UsersModule } from "./users/users.module";
     UsersModule,
     RolesModule,
     AcademicModule,
+    DashboardModule,
     LaboratoriesModule,
     InventoryModule,
     LoansModule,
