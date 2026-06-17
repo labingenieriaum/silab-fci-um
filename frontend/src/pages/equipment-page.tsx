@@ -31,6 +31,7 @@ import { formatLocationPathById } from "@/lib/location-path";
 import type {
   Equipment,
   EquipmentCategory,
+  Laboratory,
   Location,
   PaginatedResponse
 } from "@/types/inventory";
@@ -97,13 +98,19 @@ export function EquipmentPage() {
     queryFn: () => apiRequest<PaginatedResponse<Location>>("/locations?page=1&pageSize=100")
   });
 
+  const laboratoriesQuery = useQuery({
+    queryKey: ["laboratories"],
+    queryFn: () => apiRequest<PaginatedResponse<Laboratory>>("/laboratories?page=1&pageSize=100")
+  });
+
   const createMutation = useMutation({
-    mutationFn: (payload: EquipmentFormState) =>
-      apiRequest<Equipment>("/equipment", {
+    mutationFn: async (payload: EquipmentFormState) => {
+      const ubicacionId = await resolveLocationSelection(payload.ubicacionId);
+      return apiRequest<Equipment>("/equipment", {
         method: "POST",
         body: JSON.stringify({
           categoriaId: Number(payload.categoriaId),
-          ubicacionId: Number(payload.ubicacionId),
+          ubicacionId,
           codigoInterno: payload.codigoInterno,
           codigoBarras: payload.codigoBarras || undefined,
           nombre: payload.nombre,
@@ -117,12 +124,13 @@ export function EquipmentPage() {
             ? payload.unidades.map((unit) => ({
                 codigoInterno: unit.codigoInterno,
                 serial: unit.serial || undefined,
-                ubicacionId: Number(payload.ubicacionId),
+                ubicacionId,
                 observaciones: unit.observaciones || undefined
               }))
             : undefined
         })
-      }),
+      });
+    },
     onSuccess: async () => {
       setFeedback("Equipo registrado correctamente.");
       setForm(initialForm);
@@ -134,12 +142,13 @@ export function EquipmentPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: EquipmentFormState }) =>
-      apiRequest<Equipment>(`/equipment/${id}`, {
+    mutationFn: async ({ id, payload }: { id: number; payload: EquipmentFormState }) => {
+      const ubicacionId = await resolveLocationSelection(payload.ubicacionId);
+      return apiRequest<Equipment>(`/equipment/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
           categoriaId: Number(payload.categoriaId),
-          ubicacionId: Number(payload.ubicacionId),
+          ubicacionId,
           codigoInterno: payload.codigoInterno,
           codigoBarras: payload.codigoBarras,
           nombre: payload.nombre,
@@ -148,7 +157,8 @@ export function EquipmentPage() {
           valorEstimado: Number(payload.valorEstimado || 0),
           observaciones: payload.observaciones
         })
-      }),
+      });
+    },
     onSuccess: async () => {
       setFeedback("Equipo actualizado correctamente.");
       setEditingEquipment(null);
@@ -197,6 +207,7 @@ export function EquipmentPage() {
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
+  const laboratories = useMemo(() => laboratoriesQuery.data?.data ?? [], [laboratoriesQuery.data]);
   const categoryOptions = useMemo(
     () =>
       categories.map((category) => ({
@@ -367,6 +378,18 @@ export function EquipmentPage() {
     }
   }
 
+  async function resolveLocationSelection(selection: string) {
+    if (selection.startsWith("lab:")) {
+      const laboratoryId = Number(selection.replace("lab:", ""));
+      const rootLocation = await apiRequest<Location>(`/locations/laboratories/${laboratoryId}/root`, {
+        method: "POST"
+      });
+      await queryClient.invalidateQueries({ queryKey: ["locations"] });
+      return rootLocation.id;
+    }
+    return Number(selection);
+  }
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -424,9 +447,7 @@ export function EquipmentPage() {
       </section>
 
       <section>
-        {formOpen && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
-        <Card className="w-full max-w-4xl shadow-xl">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Inventario de equipos</CardTitle>
@@ -542,7 +563,9 @@ export function EquipmentPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        {formOpen && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+        <Card className="w-full max-w-4xl shadow-xl">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="flex items-center gap-2">
@@ -575,10 +598,12 @@ export function EquipmentPage() {
                 <Field label="Ubicacion">
                   <LocationCombobox
                     locations={locations}
+                    laboratories={laboratories}
                     value={form.ubicacionId}
                     onChange={(value) => updateForm("ubicacionId", value)}
                     placeholder="Seleccionar"
                     emptyLabel="Seleccionar"
+                    allowLaboratorySelection
                     required
                   />
                 </Field>

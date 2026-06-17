@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { TipoUbicacion, type Prisma } from "@prisma/client";
 import { assertFacultyAccess, getUserFacultyScope, resolveFacultyForWrite } from "../common/faculty-scope";
 import type { JwtUser } from "../common/types/jwt-user";
 import { PrismaService } from "../prisma/prisma.service";
@@ -288,6 +288,36 @@ export class LaboratoriesService {
     });
   }
 
+  async findOrCreateLaboratoryRootLocation(user: JwtUser, laboratorioId: number) {
+    const laboratory = await this.ensureLaboratoryInScope(user, laboratorioId);
+    const existing = await this.prisma.ubicacion.findFirst({
+      where: {
+        laboratorioId,
+        ubicacionPadreId: null,
+        tipo: TipoUbicacion.LABORATORIO,
+        deletedAt: null
+      },
+      select: locationSelect,
+      orderBy: { id: "asc" }
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    return this.prisma.ubicacion.create({
+      data: {
+        laboratorioId,
+        ubicacionPadreId: null,
+        nombre: laboratory.nombre,
+        tipo: TipoUbicacion.LABORATORIO,
+        descripcion: "Ubicacion raiz para equipos guardados directamente en el laboratorio.",
+        activa: true
+      },
+      select: locationSelect
+    });
+  }
+
   async updateLocation(user: JwtUser, id: number, dto: UpdateLocationDto) {
     const current = await this.findLocation(user, id);
     const nextLaboratoryId = dto.laboratorioId ?? current.laboratorioId;
@@ -389,6 +419,9 @@ export class LaboratoriesService {
         deletedAt: null
       },
       select: {
+        id: true,
+        nombre: true,
+        codigo: true,
         facultadId: true
       }
     });
@@ -398,6 +431,7 @@ export class LaboratoriesService {
     }
 
     assertFacultyAccess(user, laboratory.facultadId);
+    return laboratory;
   }
 }
 

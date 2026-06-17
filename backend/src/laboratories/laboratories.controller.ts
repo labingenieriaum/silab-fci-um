@@ -72,6 +72,14 @@ export class LaboratoriesController {
     return this.laboratoriesService.createLocation(user, dto);
   }
 
+  @Post("locations/laboratories/:id/root")
+  findOrCreateLaboratoryRootLocation(
+    @CurrentUser() user: JwtUser,
+    @Param("id", ParseIntPipe) id: number
+  ) {
+    return this.laboratoriesService.findOrCreateLaboratoryRootLocation(user, id);
+  }
+
   @Get("locations/:id")
   findLocation(@CurrentUser() user: JwtUser, @Param("id", ParseIntPipe) id: number) {
     return this.laboratoriesService.findLocation(user, id);
