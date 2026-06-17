@@ -333,7 +333,10 @@ export function EquipmentPage() {
       "permitePrestamo",
       "cantidadTotal",
       "valorEstimado",
-      "observaciones"
+      "observaciones",
+      "unidadCodigo",
+      "unidadUbicacionId",
+      "unidadObservaciones"
     ];
     const categoryRows = categories.map((category) => [
       category.id,
@@ -348,9 +351,123 @@ export function EquipmentPage() {
       "false",
       "1",
       "0",
-      "Fila de referencia: usa este categoriaId para crear equipos"
+      "Fila de referencia: usa este categoriaId para crear equipos",
+      "",
+      "",
+      ""
     ]);
-    downloadCsvFile("formato-equipos.csv", [header, ...categoryRows]);
+    const locationRows = locations.map((location) => [
+      "",
+      "",
+      location.id,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "false",
+      "false",
+      "1",
+      "0",
+      `Fila de referencia: ubicacionId ${location.id} - ${formatLocationPathById(location.id, locations)}`,
+      "",
+      "",
+      ""
+    ]);
+    const exampleLocationId = locations[0]?.id ?? "";
+    const exampleRows = [
+      [
+        categories[0]?.id ?? 1,
+        categories[0]?.nombre ?? "Activo Fijo",
+        exampleLocationId,
+        "PANT-HP-C204",
+        "",
+        "Pantalla HP",
+        "HP",
+        "Modelo X",
+        "true",
+        "false",
+        "14",
+        "0",
+        "Pantallas del C204 agrupadas como un solo equipo",
+        "2805006622",
+        exampleLocationId,
+        "Pantalla 1"
+      ],
+      [
+        categories[0]?.id ?? 1,
+        categories[0]?.nombre ?? "Activo Fijo",
+        exampleLocationId,
+        "PANT-HP-C204",
+        "",
+        "Pantalla HP",
+        "HP",
+        "Modelo X",
+        "true",
+        "false",
+        "14",
+        "0",
+        "Pantallas del C204 agrupadas como un solo equipo",
+        "2805006623",
+        exampleLocationId,
+        "Pantalla 2"
+      ]
+    ];
+    downloadCsvFile("formato-equipos.csv", [header, ...categoryRows, ...locationRows, ...exampleRows]);
+  }
+
+  function buildBulkEquipmentRows(csvRows: Array<Record<string, string>>) {
+    const grouped = new Map<string, Record<string, unknown> & { unidades?: Array<Record<string, unknown>> }>();
+
+    for (const row of csvRows) {
+      const codigoInterno = row.codigoInterno?.trim();
+      const nombre = row.nombre?.trim();
+      const categoriaId = Number(row.categoriaId);
+      const ubicacionId = Number(row.ubicacionId);
+      if (!codigoInterno || !nombre || !categoriaId || !ubicacionId) {
+        continue;
+      }
+
+      const key = codigoInterno.toUpperCase();
+      const unidadCodigo = row.unidadCodigo?.trim();
+      const current =
+        grouped.get(key) ??
+        {
+          categoriaId,
+          ubicacionId,
+          codigoInterno,
+          codigoBarras: row.codigoBarras?.trim() || undefined,
+          nombre,
+          marca: row.marca?.trim() || undefined,
+          modelo: row.modelo?.trim() || undefined,
+          requiereSerial: parseCsvBoolean(row.requiereSerial) || Boolean(unidadCodigo),
+          permitePrestamo: parseCsvBoolean(row.permitePrestamo),
+          cantidadTotal: Number(row.cantidadTotal || 1),
+          valorEstimado: Number(row.valorEstimado || 0),
+          observaciones: row.observaciones?.trim() || undefined,
+          unidades: []
+        };
+
+      if (unidadCodigo) {
+        current.requiereSerial = true;
+        current.unidades = [
+          ...(current.unidades ?? []),
+          {
+            codigoInterno: unidadCodigo,
+            ubicacionId: row.unidadUbicacionId ? Number(row.unidadUbicacionId) : ubicacionId,
+            observaciones: row.unidadObservaciones?.trim() || undefined
+          }
+        ];
+        current.cantidadTotal = current.unidades.length;
+      }
+
+      grouped.set(key, current);
+    }
+
+    return Array.from(grouped.values()).map((row) => ({
+      ...row,
+      unidades: row.unidades?.length ? row.unidades : undefined
+    }));
   }
 
   async function handleCsvUpload(file: File | null) {
@@ -358,22 +475,7 @@ export function EquipmentPage() {
     setFeedback(null);
     try {
       const text = await file.text();
-      const rows = parseCsv(text)
-        .map((row) => ({
-          categoriaId: Number(row.categoriaId),
-          ubicacionId: Number(row.ubicacionId),
-          codigoInterno: row.codigoInterno?.trim(),
-          codigoBarras: row.codigoBarras?.trim() || undefined,
-          nombre: row.nombre?.trim(),
-          marca: row.marca?.trim() || undefined,
-          modelo: row.modelo?.trim() || undefined,
-          requiereSerial: parseCsvBoolean(row.requiereSerial),
-          permitePrestamo: parseCsvBoolean(row.permitePrestamo),
-          cantidadTotal: Number(row.cantidadTotal || 1),
-          valorEstimado: Number(row.valorEstimado || 0),
-          observaciones: row.observaciones?.trim() || undefined
-        }))
-        .filter((row) => row.codigoInterno && row.nombre && row.categoriaId && row.ubicacionId);
+      const rows = buildBulkEquipmentRows(parseCsv(text));
 
       if (!rows.length) {
         setFeedback("El CSV no tiene filas validas. Revisa categoriaId, ubicacionId, codigoInterno y nombre.");

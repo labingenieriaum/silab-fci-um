@@ -1459,6 +1459,9 @@ export class LoansService {
         id: equipmentId,
         deletedAt: null,
         permitePrestamo: true,
+        estado: {
+          notIn: [EstadoEquipo.INACTIVO, EstadoEquipo.BAJA, EstadoEquipo.PERDIDO]
+        },
         ubicacion: {
           laboratorio: {
             facultadId: scopedFacultyId

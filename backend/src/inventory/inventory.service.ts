@@ -555,6 +555,7 @@ export class InventoryService {
         where: { id },
         data: {
           estado: EstadoEquipo.INACTIVO,
+          permitePrestamo: false,
           deletedAt: new Date()
         },
         select: equipmentDetailSelect
