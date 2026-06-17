@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { Download, FileSpreadsheet, FileText, Loader2, ReceiptText } from "lucide-react";
+import { FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
 import { downloadApiFile } from "@/lib/api";
 
 const reports = [
@@ -34,8 +33,6 @@ const reports = [
 
 export function ReportsPage() {
   const [pendingFile, setPendingFile] = useState<string | null>(null);
-  const [loanId, setLoanId] = useState("");
-  const [returnId, setReturnId] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
 
   async function handleDownload(path: string, filename: string) {
@@ -50,30 +47,12 @@ export function ReportsPage() {
     }
   }
 
-  function downloadLoanAct() {
-    const id = Number(loanId);
-    if (!Number.isInteger(id) || id < 1) {
-      setFeedback("Ingresa un ID de prestamo valido.");
-      return;
-    }
-    void handleDownload(`/reports/acts/loans/${id}.pdf`, `acta-prestamo-${id}.pdf`);
-  }
-
-  function downloadReturnAct() {
-    const id = Number(returnId);
-    if (!Number.isInteger(id) || id < 1) {
-      setFeedback("Ingresa un ID de devolucion valido.");
-      return;
-    }
-    void handleDownload(`/reports/acts/returns/${id}.pdf`, `acta-devolucion-${id}.pdf`);
-  }
-
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-semibold tracking-normal">Reportes y actas</h1>
+        <h1 className="text-2xl font-semibold tracking-normal">Reportes</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Exportacion de inventario, prestamos, mantenimientos y actas operativas.
+          Exportacion de inventario, prestamos y mantenimientos.
         </p>
       </section>
 
@@ -104,58 +83,6 @@ export function ReportsPage() {
             </CardContent>
           </Card>
         ))}
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ReceiptText className="h-4 w-4 text-primary" />
-              Acta de prestamo
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="ID del prestamo">
-              <input
-                className="input-control"
-                type="number"
-                min="1"
-                value={loanId}
-                onChange={(event) => setLoanId(event.target.value)}
-                placeholder="Ej. 12"
-              />
-            </Field>
-            <Button className="w-full" type="button" onClick={downloadLoanAct} disabled={pendingFile !== null}>
-              <Download className="h-4 w-4" />
-              Descargar acta
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ReceiptText className="h-4 w-4 text-primary" />
-              Acta de devolucion
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Field label="ID de la devolucion">
-              <input
-                className="input-control"
-                type="number"
-                min="1"
-                value={returnId}
-                onChange={(event) => setReturnId(event.target.value)}
-                placeholder="Ej. 4"
-              />
-            </Field>
-            <Button className="w-full" type="button" onClick={downloadReturnAct} disabled={pendingFile !== null}>
-              <Download className="h-4 w-4" />
-              Descargar acta
-            </Button>
-          </CardContent>
-        </Card>
       </section>
 
       {feedback && (

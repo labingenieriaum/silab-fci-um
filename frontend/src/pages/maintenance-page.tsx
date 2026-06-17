@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Play, Search, ShieldAlert, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Play, Plus, Search, ShieldAlert, Wrench, X, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -53,6 +53,7 @@ export function MaintenancePage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedMaintenanceId, setSelectedMaintenanceId] = useState<number | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<MaintenanceFormState>(initialForm);
   const [closeCondition, setCloseCondition] = useState<EstadoCondicionEquipo>("BUENO");
   const [closeNotes, setCloseNotes] = useState("");
@@ -158,6 +159,7 @@ export function MaintenancePage() {
       setFeedback("Mantenimiento registrado.");
       setSelectedMaintenanceId(record.id);
       setForm(initialForm);
+      setFormOpen(false);
       await refreshOperationalData();
     },
     onError: setErrorFeedback
@@ -261,14 +263,20 @@ export function MaintenancePage() {
             Registro, seguimiento y cierre de equipos enviados a mantenimiento.
           </p>
         </div>
-        <div className="flex h-10 items-center gap-2 rounded-md border bg-white px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            className="h-full w-64 bg-transparent text-sm outline-none"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar mantenimiento"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={() => setFormOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Nuevo mantenimiento
+          </Button>
+          <div className="flex h-10 items-center gap-2 rounded-md border bg-card px-3">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              className="h-full w-64 bg-transparent text-sm outline-none"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar mantenimiento"
+            />
+          </div>
         </div>
       </section>
 
@@ -307,7 +315,7 @@ export function MaintenancePage() {
                   {maintenance.map((item) => (
                     <tr
                       key={item.id}
-                      className="cursor-pointer border-t bg-white hover:bg-muted/30"
+                      className="cursor-pointer border-t bg-card hover:bg-muted/30"
                       onClick={() => setSelectedMaintenanceId(item.id)}
                     >
                       <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -344,12 +352,19 @@ export function MaintenancePage() {
         </Card>
 
         <div className="space-y-4">
-          <Card>
+          {formOpen && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+          <Card className="w-full max-w-2xl shadow-xl">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-primary" />
-                Registrar mantenimiento
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="flex items-center gap-2">
+                  <Wrench className="h-4 w-4 text-primary" />
+                  Registrar mantenimiento
+                </CardTitle>
+                <Button type="button" variant="ghost" size="icon" onClick={() => setFormOpen(false)} aria-label="Cerrar">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={handleCreate}>
@@ -420,6 +435,8 @@ export function MaintenancePage() {
               </form>
             </CardContent>
           </Card>
+            </div>
+          )}
 
           {selectedMaintenance && (
             <Card>

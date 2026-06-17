@@ -8,6 +8,7 @@ import {
   SubjectsPage
 } from "@/pages/academic-catalog-pages";
 import { ProtectedRoute } from "@/features/auth/protected-route";
+import { AuditPage } from "@/pages/audit-page";
 import { CategoriesPage } from "@/pages/categories-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DeliveryActPage } from "@/pages/delivery-act-page";
@@ -20,7 +21,6 @@ import { LoginPage } from "@/pages/login-page";
 import { LoansPage } from "@/pages/loans-page";
 import { MaintenancePage } from "@/pages/maintenance-page";
 import { PeoplePage } from "@/pages/people-page";
-import { PlaceholderPage } from "@/pages/placeholder-page";
 import { PublicLoanRequestPage } from "@/pages/public-loan-request-page";
 import { ReportsPage } from "@/pages/reports-page";
 import { ReturnActPage } from "@/pages/return-act-page";
@@ -130,12 +130,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "audit",
-            element: (
-              <PlaceholderPage
-                title="Auditoria"
-                description="Trazabilidad de acciones criticas del sistema."
-              />
-            )
+            element: <AuditPage />
           },
           {
             path: "settings",

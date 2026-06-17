@@ -11,6 +11,7 @@ import * as bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import type { JwtUser } from "../common/types/jwt-user";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import type { AuthResponse, AuthUserResponse } from "./types/auth-response";
 
@@ -149,6 +150,42 @@ export class AuthService {
     }
 
     return this.toAuthUser(usuario);
+  }
+
+  async changePassword(currentUser: JwtUser | undefined, dto: ChangePasswordDto) {
+    if (!currentUser) {
+      throw new UnauthorizedException("Authentication is required.");
+    }
+
+    const usuario = await this.prisma.usuario.findFirst({
+      where: {
+        id: currentUser.sub,
+        activo: true,
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        passwordHash: true
+      }
+    });
+
+    if (!usuario) {
+      throw new NotFoundException("User not found.");
+    }
+
+    const valid = await bcrypt.compare(dto.currentPassword, usuario.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException("La contrasena actual no es correcta.");
+    }
+
+    await this.prisma.usuario.update({
+      where: { id: usuario.id },
+      data: {
+        passwordHash: await bcrypt.hash(dto.newPassword, 12)
+      }
+    });
+
+    return { status: "ok" };
   }
 
   private async createAuthResponse(

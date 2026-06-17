@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   Trash2,
+  Upload,
   Wrench,
   X,
   XCircle
@@ -75,6 +76,7 @@ export function EquipmentPage() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<EquipmentFormState>(initialForm);
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const equipmentQuery = useQuery({
@@ -124,6 +126,7 @@ export function EquipmentPage() {
     onSuccess: async () => {
       setFeedback("Equipo registrado correctamente.");
       setForm(initialForm);
+      setFormOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["equipment"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
     },
@@ -150,6 +153,7 @@ export function EquipmentPage() {
       setFeedback("Equipo actualizado correctamente.");
       setEditingEquipment(null);
       setForm(initialForm);
+      setFormOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["equipment"] });
       await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
     },
@@ -163,6 +167,7 @@ export function EquipmentPage() {
       if (editingEquipment?.id === id) {
         setEditingEquipment(null);
         setForm(initialForm);
+        setFormOpen(false);
       }
       setFeedback("Equipo eliminado correctamente.");
       await queryClient.invalidateQueries({ queryKey: ["equipment"] });
@@ -170,6 +175,23 @@ export function EquipmentPage() {
     },
     onError: (error) =>
       setFeedback(error instanceof Error ? error.message : "No fue posible eliminar el equipo.")
+  });
+
+  const bulkCreateMutation = useMutation({
+    mutationFn: (rows: Array<Record<string, unknown>>) =>
+      apiRequest<{ total: number; created: number; errors: number }>("/equipment/bulk", {
+        method: "POST",
+        body: JSON.stringify({ rows })
+      }),
+    onSuccess: async (result) => {
+      setFeedback(
+        `Carga CSV finalizada: ${result.created} equipos creados, ${result.errors} errores de ${result.total} filas.`
+      );
+      await queryClient.invalidateQueries({ queryKey: ["equipment"] });
+      await queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+    },
+    onError: (error) =>
+      setFeedback(error instanceof Error ? error.message : "No fue posible cargar el CSV.")
   });
 
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
@@ -225,6 +247,7 @@ export function EquipmentPage() {
   function beginEdit(item: Equipment) {
     setFeedback(null);
     setEditingEquipment(item);
+    setFormOpen(true);
     setForm({
       categoriaId: String(item.categoriaId),
       ubicacionId: String(item.ubicacionId),
@@ -245,6 +268,14 @@ export function EquipmentPage() {
     setEditingEquipment(null);
     setForm(initialForm);
     setFeedback(null);
+    setFormOpen(false);
+  }
+
+  function beginCreate() {
+    setFeedback(null);
+    setEditingEquipment(null);
+    setForm(initialForm);
+    setFormOpen(true);
   }
 
   function handleDelete(item: Equipment) {
@@ -272,6 +303,70 @@ export function EquipmentPage() {
     createMutation.mutate(form);
   }
 
+  function downloadCsvTemplate() {
+    const header = [
+      "categoriaId",
+      "categoriaNombre",
+      "ubicacionId",
+      "codigoInterno",
+      "codigoBarras",
+      "nombre",
+      "marca",
+      "modelo",
+      "requiereSerial",
+      "cantidadTotal",
+      "valorEstimado",
+      "observaciones"
+    ];
+    const categoryRows = categories.map((category) => [
+      category.id,
+      category.nombre,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "false",
+      "1",
+      "0",
+      "Fila de referencia: usa este categoriaId para crear equipos"
+    ]);
+    downloadCsvFile("formato-equipos.csv", [header, ...categoryRows]);
+  }
+
+  async function handleCsvUpload(file: File | null) {
+    if (!file) return;
+    setFeedback(null);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text)
+        .map((row) => ({
+          categoriaId: Number(row.categoriaId),
+          ubicacionId: Number(row.ubicacionId),
+          codigoInterno: row.codigoInterno?.trim(),
+          codigoBarras: row.codigoBarras?.trim() || undefined,
+          nombre: row.nombre?.trim(),
+          marca: row.marca?.trim() || undefined,
+          modelo: row.modelo?.trim() || undefined,
+          requiereSerial: parseCsvBoolean(row.requiereSerial),
+          cantidadTotal: Number(row.cantidadTotal || 1),
+          valorEstimado: Number(row.valorEstimado || 0),
+          observaciones: row.observaciones?.trim() || undefined
+        }))
+        .filter((row) => row.codigoInterno && row.nombre && row.categoriaId && row.ubicacionId);
+
+      if (!rows.length) {
+        setFeedback("El CSV no tiene filas validas. Revisa categoriaId, ubicacionId, codigoInterno y nombre.");
+        return;
+      }
+
+      bulkCreateMutation.mutate(rows);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "No fue posible leer el CSV.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
@@ -281,14 +376,43 @@ export function EquipmentPage() {
             Registro de equipos, cantidades, estados, seriales y ubicacion responsable.
           </p>
         </div>
-        <div className="flex h-10 items-center gap-2 rounded-md border bg-white px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            className="h-full w-64 bg-transparent text-sm outline-none"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por equipo, barras o QR"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={downloadCsvTemplate}>
+            <Download className="h-4 w-4" />
+            Descargar formato
+          </Button>
+          <Button type="button" variant="outline" asChild disabled={bulkCreateMutation.isPending}>
+            <label className="cursor-pointer">
+              {bulkCreateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Subir CSV
+              <input
+                className="hidden"
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  void handleCsvUpload(event.target.files?.[0] ?? null);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </Button>
+          <Button type="button" onClick={beginCreate}>
+            <Plus className="h-4 w-4" />
+            Nuevo equipo
+          </Button>
+          <div className="flex h-10 items-center gap-2 rounded-md border bg-card px-3">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              className="h-full w-64 bg-transparent text-sm outline-none"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar por equipo, barras o QR"
+            />
+          </div>
         </div>
       </section>
 
@@ -299,8 +423,10 @@ export function EquipmentPage() {
         <Metric label="Mantenimiento" value={summary.mantenimiento} icon={<Wrench className="h-4 w-4" />} />
       </section>
 
-      <section className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_460px]">
-        <Card>
+      <section>
+        {formOpen && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 px-4 py-8">
+        <Card className="w-full max-w-4xl shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Inventario de equipos</CardTitle>
@@ -328,7 +454,7 @@ export function EquipmentPage() {
                 </thead>
                 <tbody>
                   {equipment.map((item) => (
-                    <tr key={item.id} className="border-t bg-white">
+                    <tr key={item.id} className="border-t bg-card">
                       <td className="px-4 py-3">
                         <div className="font-medium">{item.nombre}</div>
                         <div className="text-xs text-muted-foreground">
@@ -418,14 +544,19 @@ export function EquipmentPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {isEditing ? (
-                <Pencil className="h-4 w-4 text-primary" />
-              ) : (
-                <Plus className="h-4 w-4 text-primary" />
-              )}
-              {isEditing ? "Editar equipo" : "Registrar equipo"}
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2">
+                {isEditing ? (
+                  <Pencil className="h-4 w-4 text-primary" />
+                ) : (
+                  <Plus className="h-4 w-4 text-primary" />
+                )}
+                {isEditing ? "Editar equipo" : "Registrar equipo"}
+              </CardTitle>
+              <Button type="button" variant="ghost" size="icon" onClick={cancelEdit} aria-label="Cerrar">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -489,7 +620,7 @@ export function EquipmentPage() {
                     <QrCode className="h-4 w-4 text-primary" />
                     QR del equipo
                   </div>
-                  <code className="mt-2 block break-all rounded-md bg-white px-2 py-1">
+                  <code className="mt-2 block break-all rounded-md bg-background px-2 py-1">
                     {getQrPayload(editingEquipment.qrToken)}
                   </code>
                 </div>
@@ -523,7 +654,7 @@ export function EquipmentPage() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-[1fr_150px] sm:items-end">
-                <label className="flex h-10 items-center gap-2 rounded-md border bg-white px-3 text-sm font-medium">
+                <label className="flex h-10 items-center gap-2 rounded-md border bg-card px-3 text-sm font-medium">
                   <input
                     type="checkbox"
                     checked={form.requiereSerial}
@@ -608,6 +739,8 @@ export function EquipmentPage() {
             </form>
           </CardContent>
         </Card>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -742,6 +875,75 @@ function getShortQrToken(qrToken: string) {
     return qrToken;
   }
   return `${qrToken.slice(0, 10)}...`;
+}
+
+function parseCsv(text: string) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
+  const [headerLine, ...dataLines] = lines;
+  if (!headerLine) return [];
+  const headers = parseCsvLine(headerLine).map((header) => header.trim());
+  return dataLines.map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce<Record<string, string>>((acc, header, index) => {
+      acc[header] = values[index]?.trim() ?? "";
+      return acc;
+    }, {});
+  });
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === "\"" && quoted && next === "\"") {
+      current += "\"";
+      index += 1;
+      continue;
+    }
+    if (char === "\"") {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function parseCsvBoolean(value?: string) {
+  return ["1", "si", "sí", "true", "x"].includes((value ?? "").trim().toLowerCase());
+}
+
+function downloadCsvFile(filename: string, rows: Array<Array<string | number>>) {
+  const content = rows
+    .map((row) =>
+      row
+        .map((value) => {
+          const text = String(value ?? "");
+          return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+        })
+        .join(",")
+    )
+    .join("\r\n");
+  const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function Metric({ label, value, icon }: { label: string; value: number; icon: ReactNode }) {

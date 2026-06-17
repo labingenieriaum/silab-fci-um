@@ -12,6 +12,7 @@ import {
   FileText,
   FlaskConical,
   Home,
+  KeyRound,
   Layers3,
   LogOut,
   MapPin,
@@ -21,15 +22,18 @@ import {
   RotateCcw,
   Settings,
   Shield,
+  Sun,
   Users,
   Wrench,
   X
 } from "lucide-react";
 import type { ComponentType } from "react";
-import { useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/auth-context";
+import { apiRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -108,10 +112,58 @@ export function AppShell() {
   const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("silab-theme") === "dark");
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [passwordFeedback, setPasswordFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("silab-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
+
+  const passwordMutation = useMutation({
+    mutationFn: (payload: { currentPassword: string; newPassword: string }) =>
+      apiRequest<{ status: string }>("/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      }),
+    onSuccess: () => {
+      setPasswordFeedback("Contrasena actualizada correctamente.");
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setTimeout(() => {
+        setPasswordOpen(false);
+        setPasswordFeedback(null);
+      }, 900);
+    },
+    onError: (error) =>
+      setPasswordFeedback(error instanceof Error ? error.message : "No fue posible cambiar la contrasena.")
+  });
 
   async function handleLogout() {
     await logout();
     navigate("/login", { replace: true });
+  }
+
+  function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordFeedback(null);
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordFeedback("La nueva contrasena debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordFeedback("La confirmacion no coincide con la nueva contrasena.");
+      return;
+    }
+    passwordMutation.mutate({
+      currentPassword: passwordForm.currentPassword,
+      newPassword: passwordForm.newPassword
+    });
   }
 
   const initials =
@@ -203,7 +255,7 @@ export function AppShell() {
       </aside>
 
       <div className="md:pl-64">
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-white/95 px-4 backdrop-blur md:px-6">
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -224,8 +276,23 @@ export function AppShell() {
             <Button variant="ghost" size="icon" aria-label="Notificaciones">
               <Bell className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" aria-label="Tema">
-              <Moon className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Tema"
+              onClick={() => setDarkMode((current) => !current)}
+              title={darkMode ? "Modo claro" : "Modo oscuro"}
+            >
+              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cambiar contrasena"
+              title="Cambiar contrasena"
+              onClick={() => setPasswordOpen(true)}
+            >
+              <KeyRound className="h-4 w-4" />
             </Button>
 
             <div className="hidden items-center gap-2 rounded-md px-2 py-1.5 sm:flex">
@@ -251,7 +318,7 @@ export function AppShell() {
       </div>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-20 grid h-16 border-t bg-white md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 grid h-16 border-t bg-background md:hidden"
         style={{ gridTemplateColumns: `repeat(${visibleMobileNav.length}, minmax(0, 1fr))` }}
       >
         {visibleMobileNav.map((item) => (
@@ -270,6 +337,85 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {passwordOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-8">
+          <div className="w-full max-w-md rounded-md border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">Cambiar contrasena</h2>
+                <p className="text-sm text-muted-foreground">{user?.correo}</p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setPasswordOpen(false);
+                  setPasswordFeedback(null);
+                }}
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <form className="space-y-4 p-5" onSubmit={handlePasswordSubmit}>
+              <label className="block space-y-1 text-sm font-medium">
+                <span>Contrasena actual</span>
+                <input
+                  className="input-control"
+                  type="password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="block space-y-1 text-sm font-medium">
+                <span>Nueva contrasena</span>
+                <input
+                  className="input-control"
+                  type="password"
+                  minLength={8}
+                  value={passwordForm.newPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="block space-y-1 text-sm font-medium">
+                <span>Confirmar contrasena</span>
+                <input
+                  className="input-control"
+                  type="password"
+                  minLength={8}
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) =>
+                    setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              {passwordFeedback && (
+                <div className="rounded-md border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+                  {passwordFeedback}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPasswordOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={passwordMutation.isPending}>
+                  <KeyRound className="h-4 w-4" />
+                  Guardar
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -26,6 +26,28 @@
     --radius: 0.5rem;
   }
 
+  .dark {
+    --background: 150 18% 8%;
+    --foreground: 145 22% 92%;
+    --card: 150 16% 11%;
+    --card-foreground: 145 22% 92%;
+    --popover: 150 16% 11%;
+    --popover-foreground: 145 22% 92%;
+    --primary: 185 54% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 150 14% 18%;
+    --secondary-foreground: 145 22% 92%;
+    --muted: 150 13% 17%;
+    --muted-foreground: 150 10% 68%;
+    --accent: 82 43% 62%;
+    --accent-foreground: 150 36% 12%;
+    --destructive: 0 68% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 150 12% 24%;
+    --input: 150 12% 28%;
+    --ring: 185 54% 45%;
+  }
+
   * {
     @apply border-border;
   }
@@ -38,11 +60,11 @@
   }
 
   .input-control {
-    @apply h-10 w-full rounded-md border border-input bg-white px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20;
+    @apply h-10 w-full rounded-md border border-input bg-card px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20;
   }
 
   .textarea-control {
-    @apply min-h-20 w-full rounded-md border border-input bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20;
+    @apply min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20;
   }
 
   .badge {

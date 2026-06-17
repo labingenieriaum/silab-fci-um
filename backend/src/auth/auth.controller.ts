@@ -4,6 +4,7 @@ import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { Public } from "../common/decorators/public.decorator";
 import type { JwtUser } from "../common/types/jwt-user";
 import { AuthService } from "./auth.service";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 import { LoginDto } from "./dto/login.dto";
 
 @Controller("auth")
@@ -42,6 +43,11 @@ export class AuthController {
   @Get("me")
   async me(@CurrentUser() currentUser?: JwtUser) {
     return this.authService.me(currentUser);
+  }
+
+  @Post("change-password")
+  async changePassword(@CurrentUser() currentUser: JwtUser, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(currentUser, dto);
   }
 
   private setRefreshCookie(response: Response, token: string) {

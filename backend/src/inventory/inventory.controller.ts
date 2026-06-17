@@ -12,6 +12,7 @@ import {
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { Permissions } from "../common/decorators/permissions.decorator";
 import type { JwtUser } from "../common/types/jwt-user";
+import { BulkEquipmentDto } from "./dto/bulk-equipment.dto";
 import { CreateEquipmentCategoryDto } from "./dto/create-equipment-category.dto";
 import { CreateEquipmentUnitDto } from "./dto/create-equipment-unit.dto";
 import { CreateEquipmentDto } from "./dto/create-equipment.dto";
@@ -63,6 +64,11 @@ export class InventoryController {
   @Post("equipment")
   createEquipment(@CurrentUser() user: JwtUser, @Body() dto: CreateEquipmentDto) {
     return this.inventoryService.createEquipment(user, dto);
+  }
+
+  @Post("equipment/bulk")
+  bulkCreateEquipment(@CurrentUser() user: JwtUser, @Body() dto: BulkEquipmentDto) {
+    return this.inventoryService.bulkCreateEquipment(user, dto);
   }
 
   @Get("equipment/lookup")

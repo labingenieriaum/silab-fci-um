@@ -1,8 +1,10 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { AcademicModule } from "./academic/academic.module";
 import { AppController } from "./app.controller";
+import { AuditModule } from "./audit/audit.module";
+import { AuditInterceptor } from "./audit/audit.interceptor";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
@@ -28,6 +30,7 @@ import { UsersModule } from "./users/users.module";
       validate: validateEnv
     }),
     PrismaModule,
+    AuditModule,
     AuthModule,
     UsersModule,
     RolesModule,
@@ -51,6 +54,10 @@ import { UsersModule } from "./users/users.module";
     {
       provide: APP_GUARD,
       useClass: PermissionsGuard
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditInterceptor
     }
   ]
 })

@@ -6,6 +6,7 @@ import type { JwtUser } from "../common/types/jwt-user";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateEquipmentCategoryDto } from "./dto/create-equipment-category.dto";
 import { CreateEquipmentUnitDto } from "./dto/create-equipment-unit.dto";
+import { BulkEquipmentDto } from "./dto/bulk-equipment.dto";
 import { CreateEquipmentDto, EquipmentUnitInputDto } from "./dto/create-equipment.dto";
 import {
   ListInventoryMovementsQueryDto,
@@ -453,6 +454,39 @@ export class InventoryService {
     } catch (error) {
       handleKnownDatabaseError(error, "Ya existe un equipo o unidad con ese codigo, codigo de barras o serial.");
     }
+  }
+
+  async bulkCreateEquipment(user: JwtUser, dto: BulkEquipmentDto) {
+    const results: Array<{
+      codigoInterno: string;
+      id?: number;
+      status: "created" | "error";
+      message?: string;
+    }> = [];
+
+    for (const row of dto.rows) {
+      try {
+        const equipment = await this.createEquipment(user, row);
+        results.push({
+          codigoInterno: equipment.codigoInterno,
+          id: equipment.id,
+          status: "created"
+        });
+      } catch (error) {
+        results.push({
+          codigoInterno: row.codigoInterno,
+          status: "error",
+          message: error instanceof Error ? error.message : "No fue posible crear el equipo."
+        });
+      }
+    }
+
+    return {
+      total: dto.rows.length,
+      created: results.filter((item) => item.status === "created").length,
+      errors: results.filter((item) => item.status === "error").length,
+      results
+    };
   }
 
   async updateEquipment(user: JwtUser, id: number, dto: UpdateEquipmentDto) {
