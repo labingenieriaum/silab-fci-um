@@ -72,6 +72,7 @@ const equipmentSelect = {
   categoriaId: true,
   ubicacionId: true,
   responsableId: true,
+  convenioId: true,
   codigoInterno: true,
   codigoBarras: true,
   qrToken: true,
@@ -82,6 +83,9 @@ const equipmentSelect = {
   permitePrestamo: true,
   origen: true,
   convenioEntidad: true,
+  convenioIdentificacion: true,
+  convenioCorreo: true,
+  convenioTelefono: true,
   convenioResponsable: true,
   convenioDocumentoNombre: true,
   convenioDocumentoMimeType: true,
@@ -121,6 +125,18 @@ const equipmentSelect = {
       id: true,
       nombre: true,
       correo: true
+    }
+  },
+  convenio: {
+    select: {
+      id: true,
+      nombre: true,
+      identificacion: true,
+      correo: true,
+      telefono: true,
+      contacto: true,
+      documentoNombre: true,
+      activo: true
     }
   },
   _count: {
@@ -391,13 +407,12 @@ export class InventoryService {
     const requiresSerial = dto.requiereSerial ?? false;
     const origin = dto.origen ?? OrigenEquipo.PROPIO;
 
-    if (origin === OrigenEquipo.CONVENIO && !cleanNullableText(dto.convenioEntidad)) {
-      throw new BadRequestException("Registra la persona o entidad con la que se tiene el convenio.");
-    }
-
     this.ensureValidInitialUnits(total, requiresSerial, units);
     await this.ensureLocationInScope(user, dto.ubicacionId);
     await this.ensureUnitLocationsInScope(user, units);
+    if (origin === OrigenEquipo.CONVENIO) {
+      await this.ensureAgreementActive(dto.convenioId);
+    }
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -406,6 +421,7 @@ export class InventoryService {
             categoriaId: dto.categoriaId,
             ubicacionId: dto.ubicacionId,
             responsableId: dto.responsableId ?? null,
+            convenioId: origin === OrigenEquipo.CONVENIO ? dto.convenioId ?? null : null,
             codigoInterno: dto.codigoInterno.trim().toUpperCase(),
             codigoBarras: cleanOptionalIdentifier(dto.codigoBarras),
             qrToken: createEquipmentQrToken(),
@@ -417,6 +433,12 @@ export class InventoryService {
             origen: origin,
             convenioEntidad:
               origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioEntidad) : null,
+            convenioIdentificacion:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioIdentificacion) : null,
+            convenioCorreo:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioCorreo) : null,
+            convenioTelefono:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioTelefono) : null,
             convenioResponsable:
               origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioResponsable) : null,
             convenioDocumentoNombre:
@@ -518,11 +540,10 @@ export class InventoryService {
   async updateEquipment(user: JwtUser, id: number, dto: UpdateEquipmentDto) {
     const current = await this.findEquipmentById(user, id);
     const nextOrigin = dto.origen ?? current.origen;
-    const nextAgreementEntity =
-      dto.convenioEntidad === undefined ? current.convenioEntidad : cleanNullableText(dto.convenioEntidad);
-
-    if (nextOrigin === OrigenEquipo.CONVENIO && !nextAgreementEntity) {
-      throw new BadRequestException("Registra la persona o entidad con la que se tiene el convenio.");
+    const nextAgreementId =
+      dto.convenioId === undefined ? current.convenioId : dto.convenioId;
+    if (nextOrigin === OrigenEquipo.CONVENIO) {
+      await this.ensureAgreementActive(nextAgreementId);
     }
 
     if (dto.requiereSerial && current.unidades.length !== current.cantidadTotal) {
@@ -541,6 +562,12 @@ export class InventoryService {
           categoriaId: dto.categoriaId,
           ubicacionId: dto.ubicacionId,
           responsableId: dto.responsableId,
+          convenioId:
+            nextOrigin === OrigenEquipo.CONVENIO
+              ? dto.convenioId === undefined
+                ? undefined
+                : dto.convenioId
+              : null,
           codigoInterno: dto.codigoInterno?.trim().toUpperCase(),
           codigoBarras:
             dto.codigoBarras === undefined ? undefined : cleanOptionalIdentifier(dto.codigoBarras),
@@ -552,6 +579,12 @@ export class InventoryService {
           origen: dto.origen,
           convenioEntidad:
             dto.convenioEntidad === undefined ? undefined : cleanNullableText(dto.convenioEntidad),
+          convenioIdentificacion:
+            dto.convenioIdentificacion === undefined ? undefined : cleanNullableText(dto.convenioIdentificacion),
+          convenioCorreo:
+            dto.convenioCorreo === undefined ? undefined : cleanNullableText(dto.convenioCorreo),
+          convenioTelefono:
+            dto.convenioTelefono === undefined ? undefined : cleanNullableText(dto.convenioTelefono),
           convenioResponsable:
             dto.convenioResponsable === undefined ? undefined : cleanNullableText(dto.convenioResponsable),
           convenioDocumentoNombre:
@@ -1046,6 +1079,25 @@ export class InventoryService {
 
     if (!location) {
       throw new BadRequestException("La ubicacion indicada no existe o no pertenece a tu facultad.");
+    }
+  }
+
+  private async ensureAgreementActive(convenioId?: number | null) {
+    if (!convenioId) {
+      throw new BadRequestException("Selecciona el convenio asociado al equipo.");
+    }
+    const agreement = await this.prisma.convenio.findFirst({
+      where: {
+        id: convenioId,
+        deletedAt: null,
+        activo: true
+      },
+      select: {
+        id: true
+      }
+    });
+    if (!agreement) {
+      throw new BadRequestException("El convenio indicado no existe o no esta activo.");
     }
   }
 

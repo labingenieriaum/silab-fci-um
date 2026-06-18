@@ -67,6 +67,7 @@ const navGroups = [
     items: [
       { label: "Inventario", href: "/inventory", icon: Boxes, permission: "inventario:gestionar" },
       { label: "Equipos", href: "/equipment", icon: Package, permission: "inventario:gestionar" },
+      { label: "Convenios", href: "/agreements", icon: FileText, permission: "inventario:gestionar" },
       { label: "Categorias", href: "/categories", icon: Layers3, permission: "inventario:gestionar" },
       { label: "Laboratorios", href: "/labs", icon: FlaskConical, permission: "laboratorios:gestionar" },
       { label: "Ubicaciones", href: "/locations", icon: MapPin, permission: "laboratorios:gestionar" }

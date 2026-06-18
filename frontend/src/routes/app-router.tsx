@@ -10,6 +10,7 @@ import {
 import { ProtectedRoute } from "@/features/auth/protected-route";
 import { AuditPage } from "@/pages/audit-page";
 import { CategoriesPage } from "@/pages/categories-page";
+import { AgreementsPage } from "@/pages/agreements-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { DeliveryActPage } from "@/pages/delivery-act-page";
 import { EquipmentPage } from "@/pages/equipment-page";
@@ -63,6 +64,10 @@ export const router = createBrowserRouter([
           {
             path: "categories",
             element: <CategoriesPage />
+          },
+          {
+            path: "agreements",
+            element: <AgreementsPage />
           },
           {
             path: "labs",

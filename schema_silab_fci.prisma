@@ -398,6 +398,7 @@ model Equipo {
   categoriaId           Int          @map("categoria_id")
   ubicacionId           Int          @map("ubicacion_id")
   responsableId         Int?         @map("responsable_id")
+  convenioId            Int?         @map("convenio_id")
   codigoInterno         String       @unique @map("codigo_interno")
   codigoBarras          String?      @unique @map("codigo_barras")
   qrToken               String       @unique @map("qr_token")
@@ -408,6 +409,9 @@ model Equipo {
   permitePrestamo       Boolean      @default(true) @map("permite_prestamo")
   origen                OrigenEquipo @default(PROPIO)
   convenioEntidad       String?      @map("convenio_entidad")
+  convenioIdentificacion String?     @map("convenio_identificacion")
+  convenioCorreo        String?      @map("convenio_correo")
+  convenioTelefono      String?      @map("convenio_telefono")
   convenioResponsable   String?      @map("convenio_responsable")
   convenioDocumentoNombre String?    @map("convenio_documento_nombre")
   convenioDocumentoMimeType String?  @map("convenio_documento_mime_type")
@@ -424,6 +428,7 @@ model Equipo {
   categoria   CategoriaEquipo @relation(fields: [categoriaId], references: [id])
   ubicacion   Ubicacion       @relation(fields: [ubicacionId], references: [id])
   responsable Usuario?        @relation("UsuarioResponsableEquipo", fields: [responsableId], references: [id])
+  convenio    Convenio?       @relation(fields: [convenioId], references: [id])
 
   unidades                    EquipoUnidad[]
   movimientos                 InventarioMovimiento[]
@@ -440,8 +445,32 @@ model Equipo {
   @@index([categoriaId])
   @@index([ubicacionId])
   @@index([responsableId])
+  @@index([convenioId])
   @@index([estado])
   @@map("equipos")
+}
+
+model Convenio {
+  id              Int     @id @default(autoincrement())
+  nombre          String
+  identificacion  String?
+  correo          String?
+  telefono        String?
+  contacto        String?
+  observaciones   String?
+  documentoNombre String? @map("documento_nombre")
+  documentoMimeType String? @map("documento_mime_type")
+  documentoBase64 String? @map("documento_base64") @db.Text
+  activo          Boolean @default(true)
+
+  equipos Equipo[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([activo])
+  @@map("convenios")
 }
 
 model EquipoUnidad {

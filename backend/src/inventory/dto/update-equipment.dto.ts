@@ -28,6 +28,11 @@ export class UpdateEquipmentDto {
   @IsOptional()
   responsableId?: number | null;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  convenioId?: number | null;
+
   @IsString()
   @MinLength(2)
   @IsOptional()
@@ -66,6 +71,21 @@ export class UpdateEquipmentDto {
   @MaxLength(180)
   @IsOptional()
   convenioEntidad?: string | null;
+
+  @IsString()
+  @MaxLength(60)
+  @IsOptional()
+  convenioIdentificacion?: string | null;
+
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  convenioCorreo?: string | null;
+
+  @IsString()
+  @MaxLength(60)
+  @IsOptional()
+  convenioTelefono?: string | null;
 
   @IsString()
   @MaxLength(180)

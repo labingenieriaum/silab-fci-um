@@ -98,6 +98,7 @@ export interface Equipment {
   categoriaId: number;
   ubicacionId: number;
   responsableId: number | null;
+  convenioId: number | null;
   codigoInterno: string;
   codigoBarras: string | null;
   qrToken: string;
@@ -108,6 +109,9 @@ export interface Equipment {
   permitePrestamo: boolean;
   origen: "PROPIO" | "CONVENIO";
   convenioEntidad: string | null;
+  convenioIdentificacion: string | null;
+  convenioCorreo: string | null;
+  convenioTelefono: string | null;
   convenioResponsable: string | null;
   convenioDocumentoNombre: string | null;
   convenioDocumentoMimeType: string | null;
@@ -139,12 +143,32 @@ export interface Equipment {
     nombre: string;
     correo: string;
   } | null;
+  convenio: Agreement | null;
   _count: {
     unidades: number;
     movimientos: number;
     prestamoDetalles: number;
     mantenimientos: number;
     archivos: number;
+  };
+}
+
+export interface Agreement {
+  id: number;
+  nombre: string;
+  identificacion: string | null;
+  correo: string | null;
+  telefono: string | null;
+  contacto: string | null;
+  observaciones: string | null;
+  documentoNombre: string | null;
+  documentoMimeType: string | null;
+  documentoBase64: string | null;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count?: {
+    equipos: number;
   };
 }
 

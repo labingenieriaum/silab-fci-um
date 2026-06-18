@@ -55,6 +55,7 @@ interface LoanFormState {
   equipoId: string;
   equipoUnidadId: string;
   cantidadSolicitada: string;
+  detalles: LoanDetailFormState[];
   tipoUso: TipoUso;
   materiaId: string;
   materiaProfesorId: string;
@@ -116,6 +117,13 @@ interface ReturnMutationResponse {
   returnId: number;
 }
 
+interface LoanDetailFormState {
+  equipoId: string;
+  equipoUnidadId: string;
+  cantidadSolicitada: string;
+  label: string;
+}
+
 interface EmailSendResponse {
   sent: boolean;
   to: string;
@@ -154,6 +162,7 @@ const initialForm: LoanFormState = {
   equipoId: "",
   equipoUnidadId: "",
   cantidadSolicitada: "1",
+  detalles: [],
   tipoUso: "ACADEMICO",
   materiaId: "",
   materiaProfesorId: "",
@@ -560,15 +569,11 @@ export function LoansPage() {
           fechaRequerida: new Date(payload.fechaRequerida).toISOString(),
           fechaDevolucionEstimada: new Date(payload.fechaDevolucionEstimada).toISOString(),
           observaciones: payload.observaciones || undefined,
-          detalles: [
-            {
-              equipoId: Number(payload.equipoId),
-              equipoUnidadId: payload.equipoUnidadId ? Number(payload.equipoUnidadId) : undefined,
-              cantidadSolicitada: selectedEquipment?.requiereSerial
-                ? 1
-                : Number(payload.cantidadSolicitada)
-            }
-          ]
+          detalles: payload.detalles.map((detail) => ({
+            equipoId: Number(detail.equipoId),
+            equipoUnidadId: detail.equipoUnidadId ? Number(detail.equipoUnidadId) : undefined,
+            cantidadSolicitada: Number(detail.cantidadSolicitada)
+          }))
         })
       }),
     onSuccess: async (loan) => {
@@ -844,6 +849,60 @@ export function LoansPage() {
     }));
   }
 
+  function buildCurrentEquipmentDetail() {
+    setFeedback(null);
+    if (!form.equipoId || !selectedEquipment) {
+      setFeedback("Selecciona un equipo para agregarlo.");
+      return null;
+    }
+    if (selectedEquipment.requiereSerial && !form.equipoUnidadId) {
+      setFeedback("Selecciona una unidad disponible.");
+      return null;
+    }
+    const quantity = selectedEquipment.requiereSerial ? 1 : Number(form.cantidadSolicitada || 1);
+    if (!selectedEquipment.requiereSerial && quantity < 1) {
+      setFeedback("La cantidad debe ser mayor a cero.");
+      return null;
+    }
+    const duplicate = form.detalles.some(
+      (detail) =>
+        detail.equipoId === form.equipoId &&
+        (selectedEquipment.requiereSerial ? detail.equipoUnidadId === form.equipoUnidadId : true)
+    );
+    if (duplicate) {
+      setFeedback("Ese equipo ya esta agregado a la solicitud.");
+      return null;
+    }
+    const unitLabel = selectedEquipment.requiereSerial
+      ? unitOptions.find((unit) => unit.value === form.equipoUnidadId)?.label
+      : null;
+    return {
+      equipoId: form.equipoId,
+      equipoUnidadId: form.equipoUnidadId,
+      cantidadSolicitada: String(quantity),
+      label: `${selectedEquipment.codigoInterno} - ${selectedEquipment.nombre}${unitLabel ? ` / ${unitLabel}` : ""}`
+    };
+  }
+
+  function addCurrentEquipmentDetail() {
+    const detail = buildCurrentEquipmentDetail();
+    if (!detail) return;
+    setForm((current) => ({
+      ...current,
+      detalles: [...current.detalles, detail],
+      equipoId: "",
+      equipoUnidadId: "",
+      cantidadSolicitada: "1"
+    }));
+  }
+
+  function removeEquipmentDetail(index: number) {
+    setForm((current) => ({
+      ...current,
+      detalles: current.detalles.filter((_, detailIndex) => detailIndex !== index)
+    }));
+  }
+
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFeedback(null);
@@ -874,19 +933,27 @@ export function LoansPage() {
       setFeedback("La devolucion estimada debe ser posterior a la fecha requerida.");
       return;
     }
-    if (!form.equipoId) {
-      setFeedback("Selecciona un equipo.");
+    let detalles = form.detalles;
+    if (form.equipoId) {
+      const currentDetail = buildCurrentEquipmentDetail();
+      if (currentDetail) {
+        detalles = [...detalles, currentDetail];
+      } else {
+        return;
+      }
+    }
+    if (!detalles.length) {
+      setFeedback("Agrega al menos un equipo al prestamo.");
       return;
     }
     if (form.tipoUso === "ACADEMICO" && !form.materiaId) {
       setFeedback("Selecciona la materia asociada al prestamo academico.");
       return;
     }
-    if (selectedEquipment?.requiereSerial && !form.equipoUnidadId) {
-      setFeedback("Selecciona una unidad disponible.");
-      return;
-    }
-    createMutation.mutate(form);
+    createMutation.mutate({
+      ...form,
+      detalles
+    });
   }
 
   function handleReject(loan: Loan) {
@@ -1769,6 +1836,39 @@ export function LoansPage() {
                       />
                     </Field>
                   )}
+
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">Equipos del prestamo</p>
+                        <p className="text-xs text-muted-foreground">
+                          Agrega uno o varios equipos antes de registrar la solicitud.
+                        </p>
+                      </div>
+                      <Button type="button" variant="outline" onClick={addCurrentEquipmentDetail}>
+                        <Plus className="h-4 w-4" />
+                        Agregar equipo
+                      </Button>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {form.detalles.map((detail, index) => (
+                        <div key={`${detail.equipoId}-${detail.equipoUnidadId}-${index}`} className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                          <div>
+                            <p className="font-medium">{detail.label}</p>
+                            <p className="text-xs text-muted-foreground">Cantidad: {detail.cantidadSolicitada}</p>
+                          </div>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => removeEquipmentDetail(index)}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      {!form.detalles.length && (
+                        <div className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                          No hay equipos agregados.
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Fecha requerida">

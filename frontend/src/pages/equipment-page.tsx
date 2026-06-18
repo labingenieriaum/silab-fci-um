@@ -29,6 +29,7 @@ import { apiRequest } from "@/lib/api";
 import { formatEnum } from "@/lib/format";
 import { formatLocationPathById } from "@/lib/location-path";
 import type {
+  Agreement,
   Equipment,
   EquipmentCategory,
   Laboratory,
@@ -53,7 +54,11 @@ interface EquipmentFormState {
   requiereSerial: boolean;
   permitePrestamo: boolean;
   origen: "PROPIO" | "CONVENIO";
+  convenioId: string;
   convenioEntidad: string;
+  convenioIdentificacion: string;
+  convenioCorreo: string;
+  convenioTelefono: string;
   convenioResponsable: string;
   convenioDocumentoNombre: string;
   convenioDocumentoMimeType: string;
@@ -75,7 +80,11 @@ const initialForm: EquipmentFormState = {
   requiereSerial: false,
   permitePrestamo: false,
   origen: "PROPIO",
+  convenioId: "",
   convenioEntidad: "",
+  convenioIdentificacion: "",
+  convenioCorreo: "",
+  convenioTelefono: "",
   convenioResponsable: "",
   convenioDocumentoNombre: "",
   convenioDocumentoMimeType: "",
@@ -117,6 +126,11 @@ export function EquipmentPage() {
     queryFn: () => apiRequest<PaginatedResponse<Laboratory>>("/laboratories?page=1&pageSize=100")
   });
 
+  const agreementsQuery = useQuery({
+    queryKey: ["agreements", "active"],
+    queryFn: () => apiRequest<PaginatedResponse<Agreement>>("/agreements?page=1&pageSize=200&activo=true")
+  });
+
   const createMutation = useMutation({
     mutationFn: async (payload: EquipmentFormState) => {
       const ubicacionId = await resolveLocationSelection(payload.ubicacionId);
@@ -125,6 +139,7 @@ export function EquipmentPage() {
         body: JSON.stringify({
           categoriaId: Number(payload.categoriaId),
           ubicacionId,
+          convenioId: payload.origen === "CONVENIO" ? Number(payload.convenioId) : null,
           codigoInterno: payload.codigoInterno,
           codigoBarras: payload.codigoBarras || undefined,
           nombre: payload.nombre,
@@ -133,7 +148,11 @@ export function EquipmentPage() {
           requiereSerial: payload.requiereSerial,
           permitePrestamo: payload.permitePrestamo,
           origen: payload.origen,
-          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad : null,
+          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad || null : null,
+          convenioIdentificacion:
+            payload.origen === "CONVENIO" ? payload.convenioIdentificacion || null : null,
+          convenioCorreo: payload.origen === "CONVENIO" ? payload.convenioCorreo || null : null,
+          convenioTelefono: payload.origen === "CONVENIO" ? payload.convenioTelefono || null : null,
           convenioResponsable: payload.origen === "CONVENIO" ? payload.convenioResponsable || null : null,
           convenioDocumentoNombre:
             payload.origen === "CONVENIO" ? payload.convenioDocumentoNombre || null : null,
@@ -173,6 +192,7 @@ export function EquipmentPage() {
         body: JSON.stringify({
           categoriaId: Number(payload.categoriaId),
           ubicacionId,
+          convenioId: payload.origen === "CONVENIO" ? Number(payload.convenioId) : null,
           codigoInterno: payload.codigoInterno,
           codigoBarras: payload.codigoBarras,
           nombre: payload.nombre,
@@ -180,7 +200,11 @@ export function EquipmentPage() {
           modelo: payload.modelo,
           permitePrestamo: payload.permitePrestamo,
           origen: payload.origen,
-          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad : null,
+          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad || null : null,
+          convenioIdentificacion:
+            payload.origen === "CONVENIO" ? payload.convenioIdentificacion || null : null,
+          convenioCorreo: payload.origen === "CONVENIO" ? payload.convenioCorreo || null : null,
+          convenioTelefono: payload.origen === "CONVENIO" ? payload.convenioTelefono || null : null,
           convenioResponsable: payload.origen === "CONVENIO" ? payload.convenioResponsable || null : null,
           convenioDocumentoNombre:
             payload.origen === "CONVENIO" ? payload.convenioDocumentoNombre || null : null,
@@ -242,6 +266,7 @@ export function EquipmentPage() {
   const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
   const laboratories = useMemo(() => laboratoriesQuery.data?.data ?? [], [laboratoriesQuery.data]);
+  const agreements = useMemo(() => agreementsQuery.data?.data ?? [], [agreementsQuery.data]);
   const categoryOptions = useMemo(
     () =>
       categories.map((category) => ({
@@ -251,6 +276,16 @@ export function EquipmentPage() {
         searchText: `${category.nombre} ${category.descripcion ?? ""}`
       })),
     [categories]
+  );
+  const agreementOptions = useMemo(
+    () =>
+      agreements.map((agreement) => ({
+        value: String(agreement.id),
+        label: agreement.nombre,
+        description: [agreement.identificacion, agreement.correo, agreement.telefono].filter(Boolean).join(" | "),
+        searchText: `${agreement.nombre} ${agreement.identificacion ?? ""} ${agreement.correo ?? ""} ${agreement.telefono ?? ""}`
+      })),
+    [agreements]
   );
   const isEditing = editingEquipment !== null;
   const isSaving = createMutation.isPending || updateMutation.isPending;
@@ -274,7 +309,11 @@ export function EquipmentPage() {
     setForm((current) => {
       const next = { ...current, [key]: value };
       if (key === "origen" && value === "PROPIO") {
+        next.convenioId = "";
         next.convenioEntidad = "";
+        next.convenioIdentificacion = "";
+        next.convenioCorreo = "";
+        next.convenioTelefono = "";
         next.convenioResponsable = "";
         next.convenioDocumentoNombre = "";
         next.convenioDocumentoMimeType = "";
@@ -318,6 +357,7 @@ export function EquipmentPage() {
     setForm({
       categoriaId: String(item.categoriaId),
       ubicacionId: String(item.ubicacionId),
+      convenioId: item.convenioId ? String(item.convenioId) : "",
       codigoInterno: item.codigoInterno,
       codigoBarras: item.codigoBarras ?? "",
       nombre: item.nombre,
@@ -327,6 +367,9 @@ export function EquipmentPage() {
       permitePrestamo: item.permitePrestamo,
       origen: item.origen,
       convenioEntidad: item.convenioEntidad ?? "",
+      convenioIdentificacion: item.convenioIdentificacion ?? "",
+      convenioCorreo: item.convenioCorreo ?? "",
+      convenioTelefono: item.convenioTelefono ?? "",
       convenioResponsable: item.convenioResponsable ?? "",
       convenioDocumentoNombre: item.convenioDocumentoNombre ?? "",
       convenioDocumentoMimeType: item.convenioDocumentoMimeType ?? "",
@@ -366,8 +409,8 @@ export function EquipmentPage() {
       setFeedback("Selecciona categoria y ubicacion.");
       return;
     }
-    if (form.origen === "CONVENIO" && !form.convenioEntidad.trim()) {
-      setFeedback("Registra la persona o entidad con la que se tiene el convenio.");
+    if (form.origen === "CONVENIO" && !form.convenioId) {
+      setFeedback("Selecciona el convenio asociado al equipo.");
       return;
     }
     if (!isEditing && form.requiereSerial && form.unidades.some((unit) => !unit.codigoInterno.trim())) {
@@ -396,7 +439,12 @@ export function EquipmentPage() {
       "requiereSerial",
       "permitePrestamo",
       "origen",
-      "convenioEntidad",
+      "convenioId",
+      "convenioNombreReferencia",
+      "convenioNombre",
+      "convenioCedulaNit",
+      "convenioCorreo",
+      "convenioTelefono",
       "convenioResponsable",
       "cantidadTotal",
       "valorEstimado",
@@ -419,6 +467,11 @@ export function EquipmentPage() {
       "false",
       "false",
       "PROPIO",
+      "",
+      "",
+      "",
+      "",
+      "",
       "",
       "",
       "1",
@@ -444,6 +497,11 @@ export function EquipmentPage() {
       "PROPIO",
       "",
       "",
+      "",
+      "",
+      "",
+      "",
+      "",
       "1",
       "0",
       `Fila de referencia: ubicacionId ${location.id} - ${formatLocationPathById(location.id, locations)}`,
@@ -452,6 +510,34 @@ export function EquipmentPage() {
       ""
     ]);
     const exampleLocationId = locations[0]?.id ?? "";
+    const agreementRows = agreements.map((agreement) => [
+      "REFERENCIA_CONVENIO",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "false",
+      "false",
+      "CONVENIO",
+      agreement.id,
+      agreement.nombre,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "1",
+      "0",
+      `Fila de referencia: convenioId ${agreement.id} - ${agreement.nombre}`,
+      "",
+      "",
+      ""
+    ]);
     const exampleRows = [
       [
         "EJEMPLO",
@@ -467,6 +553,11 @@ export function EquipmentPage() {
         "true",
         "false",
         "PROPIO",
+        "",
+        "",
+        "",
+        "",
+        "",
         "",
         "",
         "14",
@@ -492,6 +583,11 @@ export function EquipmentPage() {
         "PROPIO",
         "",
         "",
+        "",
+        "",
+        "",
+        "",
+        "",
         "14",
         "0",
         "Pantallas del C204 agrupadas como un solo equipo",
@@ -500,7 +596,7 @@ export function EquipmentPage() {
         "Pantalla 2"
       ]
     ];
-    downloadCsvFile("formato-equipos.csv", [header, ...categoryRows, ...locationRows, ...exampleRows]);
+    downloadCsvFile("formato-equipos.csv", [header, ...categoryRows, ...locationRows, ...agreementRows, ...exampleRows]);
   }
 
   function buildBulkEquipmentRows(csvRows: Array<Record<string, string>>) {
@@ -534,7 +630,11 @@ export function EquipmentPage() {
           requiereSerial: parseCsvBoolean(row.requiereSerial) || Boolean(unidadCodigo),
           permitePrestamo: parseCsvBoolean(row.permitePrestamo),
           origen: normalizeCsvToken(row.origen) === "convenio" ? "CONVENIO" : "PROPIO",
-          convenioEntidad: row.convenioEntidad?.trim() || undefined,
+          convenioId: row.convenioId ? Number(row.convenioId) : undefined,
+          convenioEntidad: (row.convenioNombre || row.convenioEntidad)?.trim() || undefined,
+          convenioIdentificacion: (row.convenioCedulaNit || row.convenioIdentificacion)?.trim() || undefined,
+          convenioCorreo: row.convenioCorreo?.trim() || undefined,
+          convenioTelefono: row.convenioTelefono?.trim() || undefined,
           convenioResponsable: row.convenioResponsable?.trim() || undefined,
           cantidadTotal: Number(row.cantidadTotal || 1),
           valorEstimado: Number(row.valorEstimado || 0),
@@ -699,7 +799,7 @@ export function EquipmentPage() {
                             </span>
                             {item.origen === "CONVENIO" && (
                               <span className="inline-flex rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
-                                Convenio: {item.convenioEntidad ?? "Sin entidad"}
+                                Convenio: {item.convenio?.nombre ?? item.convenioEntidad ?? "Sin convenio"}
                               </span>
                             )}
                           </div>
@@ -976,43 +1076,22 @@ export function EquipmentPage() {
                       <option value="CONVENIO">Convenio / prestado a la facultad</option>
                     </select>
                   </Field>
-                  {form.origen === "CONVENIO" && (
-                    <Field label="Persona o entidad del convenio">
-                      <input
-                        className="input-control"
-                        value={form.convenioEntidad}
-                        onChange={(event) => updateForm("convenioEntidad", event.target.value)}
-                        placeholder="Ej. Profesor, grupo, empresa o entidad"
-                        required
-                      />
-                    </Field>
-                  )}
                 </div>
                 {form.origen === "CONVENIO" && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Responsable o contacto">
-                      <input
-                        className="input-control"
-                        value={form.convenioResponsable}
-                        onChange={(event) => updateForm("convenioResponsable", event.target.value)}
-                        placeholder="Nombre, correo o telefono"
+                  <div className="grid gap-3">
+                    <Field label="Convenio asociado">
+                      <SearchableSelect
+                        options={agreementOptions}
+                        value={form.convenioId}
+                        onChange={(value) => updateForm("convenioId", value)}
+                        placeholder="Seleccionar convenio"
+                        searchPlaceholder="Buscar por nombre, cedula, NIT o correo"
+                        emptyLabel="Sin convenios activos"
+                        required
                       />
-                    </Field>
-                    <Field label="Documento del convenio (PDF)">
-                      <input
-                        className="input-control"
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        onChange={(event) => {
-                          void handleAgreementFile(event.target.files?.[0] ?? null);
-                          event.target.value = "";
-                        }}
-                      />
-                      {form.convenioDocumentoNombre && (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Archivo cargado: {form.convenioDocumentoNombre}
-                        </p>
-                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Si no aparece, primero registralo en el menu Convenios.
+                      </p>
                     </Field>
                   </div>
                 )}

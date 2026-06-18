@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { AcademicModule } from "./academic/academic.module";
+import { AgreementsModule } from "./agreements/agreements.module";
 import { AppController } from "./app.controller";
 import { AuditModule } from "./audit/audit.module";
 import { AuditInterceptor } from "./audit/audit.interceptor";
@@ -34,6 +35,7 @@ import { UsersModule } from "./users/users.module";
     AuthModule,
     UsersModule,
     RolesModule,
+    AgreementsModule,
     AcademicModule,
     DashboardModule,
     LaboratoriesModule,
