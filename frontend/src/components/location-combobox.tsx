@@ -59,8 +59,11 @@ export function LocationCombobox({
   );
   const locationsByParent = useMemo(() => {
     const map = new Map<number | null, Location[]>();
+    const existingIds = new Set(locations.map((location) => location.id));
     for (const location of locations) {
-      const parentId = location.ubicacionPadreId ?? null;
+      const parentId = location.ubicacionPadreId && existingIds.has(location.ubicacionPadreId)
+        ? location.ubicacionPadreId
+        : null;
       map.set(parentId, [...(map.get(parentId) ?? []), location]);
     }
     return map;
