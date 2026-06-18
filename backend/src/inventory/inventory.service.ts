@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { EstadoEquipo, TipoMovimiento, type Prisma } from "@prisma/client";
+import { EstadoEquipo, OrigenEquipo, TipoMovimiento, type Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { getUserFacultyScope } from "../common/faculty-scope";
 import type { JwtUser } from "../common/types/jwt-user";
@@ -80,6 +80,12 @@ const equipmentSelect = {
   modelo: true,
   requiereSerial: true,
   permitePrestamo: true,
+  origen: true,
+  convenioEntidad: true,
+  convenioResponsable: true,
+  convenioDocumentoNombre: true,
+  convenioDocumentoMimeType: true,
+  convenioDocumentoBase64: true,
   cantidadTotal: true,
   cantidadDisponible: true,
   cantidadPrestada: true,
@@ -383,6 +389,11 @@ export class InventoryService {
     const units = dto.unidades ?? [];
     const total = dto.cantidadTotal ?? (units.length > 0 ? units.length : 1);
     const requiresSerial = dto.requiereSerial ?? false;
+    const origin = dto.origen ?? OrigenEquipo.PROPIO;
+
+    if (origin === OrigenEquipo.CONVENIO && !cleanNullableText(dto.convenioEntidad)) {
+      throw new BadRequestException("Registra la persona o entidad con la que se tiene el convenio.");
+    }
 
     this.ensureValidInitialUnits(total, requiresSerial, units);
     await this.ensureLocationInScope(user, dto.ubicacionId);
@@ -403,6 +414,17 @@ export class InventoryService {
             modelo: cleanNullableText(dto.modelo),
             requiereSerial: requiresSerial,
             permitePrestamo: dto.permitePrestamo ?? false,
+            origen: origin,
+            convenioEntidad:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioEntidad) : null,
+            convenioResponsable:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioResponsable) : null,
+            convenioDocumentoNombre:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioDocumentoNombre) : null,
+            convenioDocumentoMimeType:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioDocumentoMimeType) : null,
+            convenioDocumentoBase64:
+              origin === OrigenEquipo.CONVENIO ? cleanNullableText(dto.convenioDocumentoBase64) : null,
             cantidadTotal: total,
             cantidadDisponible: total,
             cantidadPrestada: 0,
@@ -444,7 +466,8 @@ export class InventoryService {
               codigoInterno: dto.codigoInterno.trim().toUpperCase(),
               codigoBarras: cleanOptionalIdentifier(dto.codigoBarras),
               requiereSerial: requiresSerial,
-              permitePrestamo: dto.permitePrestamo ?? false
+              permitePrestamo: dto.permitePrestamo ?? false,
+              origen: origin
             }
           }
         });
@@ -494,6 +517,13 @@ export class InventoryService {
 
   async updateEquipment(user: JwtUser, id: number, dto: UpdateEquipmentDto) {
     const current = await this.findEquipmentById(user, id);
+    const nextOrigin = dto.origen ?? current.origen;
+    const nextAgreementEntity =
+      dto.convenioEntidad === undefined ? current.convenioEntidad : cleanNullableText(dto.convenioEntidad);
+
+    if (nextOrigin === OrigenEquipo.CONVENIO && !nextAgreementEntity) {
+      throw new BadRequestException("Registra la persona o entidad con la que se tiene el convenio.");
+    }
 
     if (dto.requiereSerial && current.unidades.length !== current.cantidadTotal) {
       throw new BadRequestException(
@@ -519,6 +549,17 @@ export class InventoryService {
           modelo: dto.modelo === undefined ? undefined : cleanNullableText(dto.modelo),
           requiereSerial: dto.requiereSerial,
           permitePrestamo: dto.permitePrestamo,
+          origen: dto.origen,
+          convenioEntidad:
+            dto.convenioEntidad === undefined ? undefined : cleanNullableText(dto.convenioEntidad),
+          convenioResponsable:
+            dto.convenioResponsable === undefined ? undefined : cleanNullableText(dto.convenioResponsable),
+          convenioDocumentoNombre:
+            dto.convenioDocumentoNombre === undefined ? undefined : cleanNullableText(dto.convenioDocumentoNombre),
+          convenioDocumentoMimeType:
+            dto.convenioDocumentoMimeType === undefined ? undefined : cleanNullableText(dto.convenioDocumentoMimeType),
+          convenioDocumentoBase64:
+            dto.convenioDocumentoBase64 === undefined ? undefined : cleanNullableText(dto.convenioDocumentoBase64),
           estado: dto.estado,
           valorEstimado: dto.valorEstimado,
           observaciones:

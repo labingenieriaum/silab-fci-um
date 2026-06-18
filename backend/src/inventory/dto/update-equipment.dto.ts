@@ -6,10 +6,11 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   MinLength
 } from "class-validator";
-import { EstadoEquipo } from "@prisma/client";
+import { EstadoEquipo, OrigenEquipo } from "@prisma/client";
 
 export class UpdateEquipmentDto {
   @Type(() => Number)
@@ -56,6 +57,34 @@ export class UpdateEquipmentDto {
   @IsBoolean()
   @IsOptional()
   permitePrestamo?: boolean;
+
+  @IsEnum(OrigenEquipo)
+  @IsOptional()
+  origen?: OrigenEquipo;
+
+  @IsString()
+  @MaxLength(180)
+  @IsOptional()
+  convenioEntidad?: string | null;
+
+  @IsString()
+  @MaxLength(180)
+  @IsOptional()
+  convenioResponsable?: string | null;
+
+  @IsString()
+  @MaxLength(220)
+  @IsOptional()
+  convenioDocumentoNombre?: string | null;
+
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  convenioDocumentoMimeType?: string | null;
+
+  @IsString()
+  @IsOptional()
+  convenioDocumentoBase64?: string | null;
 
   @IsEnum(EstadoEquipo)
   @IsOptional()

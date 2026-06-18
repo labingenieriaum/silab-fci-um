@@ -52,6 +52,12 @@ interface EquipmentFormState {
   modelo: string;
   requiereSerial: boolean;
   permitePrestamo: boolean;
+  origen: "PROPIO" | "CONVENIO";
+  convenioEntidad: string;
+  convenioResponsable: string;
+  convenioDocumentoNombre: string;
+  convenioDocumentoMimeType: string;
+  convenioDocumentoBase64: string;
   cantidadTotal: string;
   valorEstimado: string;
   observaciones: string;
@@ -68,6 +74,12 @@ const initialForm: EquipmentFormState = {
   modelo: "",
   requiereSerial: false,
   permitePrestamo: false,
+  origen: "PROPIO",
+  convenioEntidad: "",
+  convenioResponsable: "",
+  convenioDocumentoNombre: "",
+  convenioDocumentoMimeType: "",
+  convenioDocumentoBase64: "",
   cantidadTotal: "1",
   valorEstimado: "0",
   observaciones: "",
@@ -120,6 +132,15 @@ export function EquipmentPage() {
           modelo: payload.modelo || undefined,
           requiereSerial: payload.requiereSerial,
           permitePrestamo: payload.permitePrestamo,
+          origen: payload.origen,
+          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad : null,
+          convenioResponsable: payload.origen === "CONVENIO" ? payload.convenioResponsable || null : null,
+          convenioDocumentoNombre:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoNombre || null : null,
+          convenioDocumentoMimeType:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoMimeType || null : null,
+          convenioDocumentoBase64:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoBase64 || null : null,
           cantidadTotal: Number(payload.cantidadTotal),
           valorEstimado: Number(payload.valorEstimado || 0),
           observaciones: payload.observaciones || undefined,
@@ -158,6 +179,15 @@ export function EquipmentPage() {
           marca: payload.marca,
           modelo: payload.modelo,
           permitePrestamo: payload.permitePrestamo,
+          origen: payload.origen,
+          convenioEntidad: payload.origen === "CONVENIO" ? payload.convenioEntidad : null,
+          convenioResponsable: payload.origen === "CONVENIO" ? payload.convenioResponsable || null : null,
+          convenioDocumentoNombre:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoNombre || null : null,
+          convenioDocumentoMimeType:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoMimeType || null : null,
+          convenioDocumentoBase64:
+            payload.origen === "CONVENIO" ? payload.convenioDocumentoBase64 || null : null,
           valorEstimado: Number(payload.valorEstimado || 0),
           observaciones: payload.observaciones
         })
@@ -243,11 +273,33 @@ export function EquipmentPage() {
   function updateForm<K extends keyof EquipmentFormState>(key: K, value: EquipmentFormState[K]) {
     setForm((current) => {
       const next = { ...current, [key]: value };
+      if (key === "origen" && value === "PROPIO") {
+        next.convenioEntidad = "";
+        next.convenioResponsable = "";
+        next.convenioDocumentoNombre = "";
+        next.convenioDocumentoMimeType = "";
+        next.convenioDocumentoBase64 = "";
+      }
       if (key === "cantidadTotal" || key === "requiereSerial") {
         return syncUnitRows(next);
       }
       return next;
     });
+  }
+
+  async function handleAgreementFile(file: File | null) {
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      setFeedback("El documento del convenio debe ser PDF.");
+      return;
+    }
+    const dataUrl = await fileToDataUrl(file);
+    setForm((current) => ({
+      ...current,
+      convenioDocumentoNombre: file.name,
+      convenioDocumentoMimeType: file.type,
+      convenioDocumentoBase64: dataUrl
+    }));
   }
 
   function updateUnit(index: number, key: keyof UnitFormState, value: string) {
@@ -273,6 +325,12 @@ export function EquipmentPage() {
       modelo: item.modelo ?? "",
       requiereSerial: item.requiereSerial,
       permitePrestamo: item.permitePrestamo,
+      origen: item.origen,
+      convenioEntidad: item.convenioEntidad ?? "",
+      convenioResponsable: item.convenioResponsable ?? "",
+      convenioDocumentoNombre: item.convenioDocumentoNombre ?? "",
+      convenioDocumentoMimeType: item.convenioDocumentoMimeType ?? "",
+      convenioDocumentoBase64: item.convenioDocumentoBase64 ?? "",
       cantidadTotal: String(item.cantidadTotal),
       valorEstimado: String(item.valorEstimado ?? 0),
       observaciones: item.observaciones ?? "",
@@ -308,6 +366,10 @@ export function EquipmentPage() {
       setFeedback("Selecciona categoria y ubicacion.");
       return;
     }
+    if (form.origen === "CONVENIO" && !form.convenioEntidad.trim()) {
+      setFeedback("Registra la persona o entidad con la que se tiene el convenio.");
+      return;
+    }
     if (!isEditing && form.requiereSerial && form.unidades.some((unit) => !unit.codigoInterno.trim())) {
       setFeedback("Cada unidad individual requiere el codigo unico de la etiqueta institucional.");
       return;
@@ -333,6 +395,9 @@ export function EquipmentPage() {
       "modelo",
       "requiereSerial",
       "permitePrestamo",
+      "origen",
+      "convenioEntidad",
+      "convenioResponsable",
       "cantidadTotal",
       "valorEstimado",
       "observaciones",
@@ -353,6 +418,9 @@ export function EquipmentPage() {
       "",
       "false",
       "false",
+      "PROPIO",
+      "",
+      "",
       "1",
       "0",
       "Fila de referencia: usa este categoriaId para crear equipos",
@@ -373,6 +441,9 @@ export function EquipmentPage() {
       "",
       "false",
       "false",
+      "PROPIO",
+      "",
+      "",
       "1",
       "0",
       `Fila de referencia: ubicacionId ${location.id} - ${formatLocationPathById(location.id, locations)}`,
@@ -395,6 +466,9 @@ export function EquipmentPage() {
         "Modelo X",
         "true",
         "false",
+        "PROPIO",
+        "",
+        "",
         "14",
         "0",
         "Pantallas del C204 agrupadas como un solo equipo",
@@ -415,6 +489,9 @@ export function EquipmentPage() {
         "Modelo X",
         "true",
         "false",
+        "PROPIO",
+        "",
+        "",
         "14",
         "0",
         "Pantallas del C204 agrupadas como un solo equipo",
@@ -456,6 +533,9 @@ export function EquipmentPage() {
           modelo: row.modelo?.trim() || undefined,
           requiereSerial: parseCsvBoolean(row.requiereSerial) || Boolean(unidadCodigo),
           permitePrestamo: parseCsvBoolean(row.permitePrestamo),
+          origen: normalizeCsvToken(row.origen) === "convenio" ? "CONVENIO" : "PROPIO",
+          convenioEntidad: row.convenioEntidad?.trim() || undefined,
+          convenioResponsable: row.convenioResponsable?.trim() || undefined,
           cantidadTotal: Number(row.cantidadTotal || 1),
           valorEstimado: Number(row.valorEstimado || 0),
           observaciones: row.observaciones?.trim() || undefined,
@@ -607,15 +687,22 @@ export function EquipmentPage() {
                           {item.requiereSerial ? ` - ${item._count.unidades} unidades identificadas` : ""}
                         </div>
                         <div className="mt-1">
-                          <span
-                            className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${
-                              item.permitePrestamo
-                                ? "bg-green-50 text-green-700"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            {item.permitePrestamo ? "Disponible para prestamos" : "Solo inventario fijo"}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            <span
+                              className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${
+                                item.permitePrestamo
+                                  ? "bg-green-50 text-green-700"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {item.permitePrestamo ? "Disponible para prestamos" : "Solo inventario fijo"}
+                            </span>
+                            {item.origen === "CONVENIO" && (
+                              <span className="inline-flex rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                                Convenio: {item.convenioEntidad ?? "Sin entidad"}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
                           {item.codigoBarras && (
@@ -877,6 +964,60 @@ export function EquipmentPage() {
                 </div>
               )}
 
+              <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Origen del equipo">
+                    <select
+                      className="input-control"
+                      value={form.origen}
+                      onChange={(event) => updateForm("origen", event.target.value as EquipmentFormState["origen"])}
+                    >
+                      <option value="PROPIO">Propio de la facultad</option>
+                      <option value="CONVENIO">Convenio / prestado a la facultad</option>
+                    </select>
+                  </Field>
+                  {form.origen === "CONVENIO" && (
+                    <Field label="Persona o entidad del convenio">
+                      <input
+                        className="input-control"
+                        value={form.convenioEntidad}
+                        onChange={(event) => updateForm("convenioEntidad", event.target.value)}
+                        placeholder="Ej. Profesor, grupo, empresa o entidad"
+                        required
+                      />
+                    </Field>
+                  )}
+                </div>
+                {form.origen === "CONVENIO" && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Responsable o contacto">
+                      <input
+                        className="input-control"
+                        value={form.convenioResponsable}
+                        onChange={(event) => updateForm("convenioResponsable", event.target.value)}
+                        placeholder="Nombre, correo o telefono"
+                      />
+                    </Field>
+                    <Field label="Documento del convenio (PDF)">
+                      <input
+                        className="input-control"
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={(event) => {
+                          void handleAgreementFile(event.target.files?.[0] ?? null);
+                          event.target.value = "";
+                        }}
+                      />
+                      {form.convenioDocumentoNombre && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Archivo cargado: {form.convenioDocumentoNombre}
+                        </p>
+                      )}
+                    </Field>
+                  </div>
+                )}
+              </div>
+
               <Field label="Observaciones">
                 <textarea
                   className="textarea-control"
@@ -1107,6 +1248,15 @@ function normalizeCsvToken(value?: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("No fue posible leer el archivo."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function downloadCsvFile(filename: string, rows: Array<Array<string | number>>) {

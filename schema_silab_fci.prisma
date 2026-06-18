@@ -154,6 +154,11 @@ enum TipoArchivo {
   OTRO
 }
 
+enum OrigenEquipo {
+  PROPIO
+  CONVENIO
+}
+
 model Facultad {
   id     Int    @id @default(autoincrement())
   nombre String
@@ -401,6 +406,12 @@ model Equipo {
   modelo                String?
   requiereSerial        Boolean      @default(false) @map("requiere_serial")
   permitePrestamo       Boolean      @default(true) @map("permite_prestamo")
+  origen                OrigenEquipo @default(PROPIO)
+  convenioEntidad       String?      @map("convenio_entidad")
+  convenioResponsable   String?      @map("convenio_responsable")
+  convenioDocumentoNombre String?    @map("convenio_documento_nombre")
+  convenioDocumentoMimeType String?  @map("convenio_documento_mime_type")
+  convenioDocumentoBase64 String?    @map("convenio_documento_base64") @db.Text
   cantidadTotal         Int          @default(1) @map("cantidad_total")
   cantidadDisponible    Int          @default(1) @map("cantidad_disponible")
   cantidadPrestada      Int          @default(0) @map("cantidad_prestada")

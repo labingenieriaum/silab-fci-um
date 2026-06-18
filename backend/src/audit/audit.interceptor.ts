@@ -69,7 +69,7 @@ function sanitize(value: unknown): unknown {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, item]) => [
       key,
-      /password|contrasena|token|contenidoBase64/i.test(key) ? "[oculto]" : sanitize(item)
+      /password|contrasena|token|base64/i.test(key) ? "[oculto]" : sanitize(item)
     ])
   );
 }

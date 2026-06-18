@@ -106,6 +106,12 @@ export interface Equipment {
   modelo: string | null;
   requiereSerial: boolean;
   permitePrestamo: boolean;
+  origen: "PROPIO" | "CONVENIO";
+  convenioEntidad: string | null;
+  convenioResponsable: string | null;
+  convenioDocumentoNombre: string | null;
+  convenioDocumentoMimeType: string | null;
+  convenioDocumentoBase64: string | null;
   cantidadTotal: number;
   cantidadDisponible: number;
   cantidadPrestada: number;

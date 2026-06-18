@@ -2,14 +2,17 @@ import { Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested
 } from "class-validator";
+import { OrigenEquipo } from "@prisma/client";
 
 export class EquipmentUnitInputDto {
   @IsString()
@@ -71,6 +74,34 @@ export class CreateEquipmentDto {
   @IsBoolean()
   @IsOptional()
   permitePrestamo?: boolean;
+
+  @IsEnum(OrigenEquipo)
+  @IsOptional()
+  origen?: OrigenEquipo;
+
+  @IsString()
+  @MaxLength(180)
+  @IsOptional()
+  convenioEntidad?: string | null;
+
+  @IsString()
+  @MaxLength(180)
+  @IsOptional()
+  convenioResponsable?: string | null;
+
+  @IsString()
+  @MaxLength(220)
+  @IsOptional()
+  convenioDocumentoNombre?: string | null;
+
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  convenioDocumentoMimeType?: string | null;
+
+  @IsString()
+  @IsOptional()
+  convenioDocumentoBase64?: string | null;
 
   @Type(() => Number)
   @IsInt()
