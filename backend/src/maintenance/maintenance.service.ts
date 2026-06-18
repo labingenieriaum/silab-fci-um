@@ -96,6 +96,8 @@ export class MaintenanceService {
             { descripcion: { contains: query.search, mode: "insensitive" } },
             { observaciones: { contains: query.search, mode: "insensitive" } },
             { equipo: { codigoInterno: { contains: query.search, mode: "insensitive" } } },
+            { equipo: { codigoBarras: { contains: query.search, mode: "insensitive" } } },
+            { equipo: { qrToken: { contains: query.search, mode: "insensitive" } } },
             { equipo: { nombre: { contains: query.search, mode: "insensitive" } } },
             {
               equipoUnidad: {

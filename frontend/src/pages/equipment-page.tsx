@@ -21,6 +21,7 @@ import {
 import JsBarcode from "jsbarcode";
 import QRCode from "qrcode";
 import { LocationCombobox } from "@/components/location-combobox";
+import { QrScanButton } from "@/components/qr-scan-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -295,7 +296,7 @@ export function EquipmentPage() {
       equipment.reduce(
         (acc, item) => {
           acc.total += item.cantidadTotal;
-          acc.disponible += item.cantidadDisponible;
+          acc.disponible += item.permitePrestamo ? item.cantidadDisponible : 0;
           acc.prestado += item.cantidadPrestada;
           acc.mantenimiento += item.cantidadMantenimiento;
           return acc;
@@ -739,6 +740,7 @@ export function EquipmentPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por equipo, barras o QR"
             />
+            <QrScanButton onScan={setSearch} />
           </div>
         </div>
       </section>
@@ -834,7 +836,12 @@ export function EquipmentPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right">{item.cantidadTotal}</td>
-                      <td className="px-4 py-3 text-right">{item.cantidadDisponible}</td>
+                      <td className="px-4 py-3 text-right">
+                        {item.permitePrestamo ? item.cantidadDisponible : 0}
+                        {!item.permitePrestamo && (
+                          <div className="text-xs font-normal text-muted-foreground">No prestable</div>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right">{item.cantidadPrestada}</td>
                       <td className="px-4 py-3 text-right">{item.cantidadMantenimiento}</td>
                       <td className="px-4 py-3">

@@ -850,7 +850,61 @@ export class LoansService {
             },
             { solicitanteNombre: { contains: query.search, mode: "insensitive" } },
             { solicitanteCorreo: { contains: query.search, mode: "insensitive" } },
-            { solicitanteDocumento: { contains: query.search, mode: "insensitive" } }
+            { solicitanteDocumento: { contains: query.search, mode: "insensitive" } },
+            {
+              detalles: {
+                some: {
+                  equipo: {
+                    codigoInterno: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            },
+            {
+              detalles: {
+                some: {
+                  equipo: {
+                    codigoBarras: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            },
+            {
+              detalles: {
+                some: {
+                  equipo: {
+                    qrToken: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            },
+            {
+              detalles: {
+                some: {
+                  equipo: {
+                    nombre: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            },
+            {
+              detalles: {
+                some: {
+                  equipoUnidad: {
+                    codigoInterno: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            },
+            {
+              detalles: {
+                some: {
+                  equipoUnidad: {
+                    serial: { contains: query.search, mode: "insensitive" }
+                  }
+                }
+              }
+            }
           ]
         }
       : undefined;

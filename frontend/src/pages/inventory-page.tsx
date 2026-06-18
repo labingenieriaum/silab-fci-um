@@ -169,7 +169,7 @@ export function InventoryPage() {
         (acc, item) => {
           acc.equipos += 1;
           acc.items += item.cantidadTotal;
-          acc.disponibles += item.cantidadDisponible;
+          acc.disponibles += item.permitePrestamo ? item.cantidadDisponible : 0;
           acc.alertas += item.cantidadMantenimiento + item.cantidadBaja;
           return acc;
         },

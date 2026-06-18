@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Play, Plus, Search, ShieldAlert, Wrench, X, XCircle } from "lucide-react";
+import { QrScanButton } from "@/components/qr-scan-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -276,6 +277,7 @@ export function MaintenancePage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar mantenimiento"
             />
+            <QrScanButton onScan={setSearch} />
           </div>
         </div>
       </section>

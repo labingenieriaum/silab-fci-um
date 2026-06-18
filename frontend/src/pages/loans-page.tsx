@@ -18,6 +18,7 @@ import {
   Search,
   X
 } from "lucide-react";
+import { QrScanButton } from "@/components/qr-scan-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -1247,6 +1248,7 @@ export function LoansPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar prestamo"
             />
+            <QrScanButton onScan={setSearch} />
           </div>
         </div>
       </section>

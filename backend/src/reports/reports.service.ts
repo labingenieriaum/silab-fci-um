@@ -21,6 +21,7 @@ const equipmentReportSelect = {
   cantidadPrestada: true,
   cantidadMantenimiento: true,
   cantidadBaja: true,
+  permitePrestamo: true,
   estado: true,
   valorEstimado: true,
   categoria: {
@@ -200,7 +201,7 @@ export class ReportsService {
         { header: "Ubicacion", value: (row) => this.locationPath(row.ubicacion.id, locationPaths) },
         { header: "Estado", value: (row) => row.estado },
         { header: "Total", value: (row) => row.cantidadTotal },
-        { header: "Disponible", value: (row) => row.cantidadDisponible },
+        { header: "Disponible", value: (row) => loanableAvailable(row) },
         { header: "Prestado", value: (row) => row.cantidadPrestada },
         { header: "Mantenimiento", value: (row) => row.cantidadMantenimiento },
         { header: "Baja", value: (row) => row.cantidadBaja },
@@ -227,7 +228,7 @@ export class ReportsService {
           equipo: row.nombre,
           categoria: row.categoria.nombre,
           estado: row.estado,
-          disponible: row.cantidadDisponible,
+          disponible: loanableAvailable(row),
           total: row.cantidadTotal,
           prestado: row.cantidadPrestada,
           mantenimiento: row.cantidadMantenimiento,
@@ -672,6 +673,10 @@ export class ReportsService {
   private resolveFacultyName() {
     return "Facultad de Ciencias e Ingenieria";
   }
+}
+
+function loanableAvailable(row: { permitePrestamo: boolean; cantidadDisponible: number }) {
+  return row.permitePrestamo ? row.cantidadDisponible : 0;
 }
 
 function formatDate(date: Date) {
