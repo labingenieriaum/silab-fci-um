@@ -789,6 +789,7 @@ export class InventoryService {
     const scopedFacultyId = getUserFacultyScope(user);
     const where: Prisma.InventarioMovimientoWhereInput = {
       equipoId: query.equipoId,
+      equipoUnidadId: query.equipoUnidadId,
       usuarioId: query.usuarioId,
       tipoMovimiento: query.tipoMovimiento,
       equipo: {

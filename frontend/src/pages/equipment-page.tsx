@@ -927,16 +927,27 @@ export function EquipmentPage() {
                       </td>
                       <td className="px-4 py-3">{item.categoria.nombre}</td>
                       <td className="px-4 py-3">
-                        <div>
-                          {formatLocationPathById(
-                            item.ubicacionId,
-                            locations,
-                            `${item.ubicacion.laboratorio.codigo} / ${item.ubicacion.nombre}`
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.ubicacion.laboratorio.codigo} - {item.ubicacion.laboratorio.nombre}
-                        </div>
+                        {item.requiereSerial ? (
+                          <>
+                            <div>Por etiqueta individual</div>
+                            <div className="text-xs text-muted-foreground">
+                              Abre unidades para ver la ubicacion real de cada activo fisico.
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              {formatLocationPathById(
+                                item.ubicacionId,
+                                locations,
+                                `${item.ubicacion.laboratorio.codigo} / ${item.ubicacion.nombre}`
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {item.ubicacion.laboratorio.codigo} - {item.ubicacion.laboratorio.nombre}
+                            </div>
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">{item.cantidadTotal}</td>
                       <td className="px-4 py-3 text-right">

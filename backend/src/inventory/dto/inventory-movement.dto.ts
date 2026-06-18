@@ -11,6 +11,11 @@ export class ListInventoryMovementsQueryDto {
   @Type(() => Number)
   @IsInt()
   @IsOptional()
+  equipoUnidadId?: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
   usuarioId?: number;
 
   @IsEnum(TipoMovimiento)

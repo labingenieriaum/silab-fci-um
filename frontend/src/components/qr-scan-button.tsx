@@ -16,6 +16,7 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const readerRef = useRef<BrowserQRCodeReader | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -48,17 +49,20 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
     }
 
     try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      streamRef.current = stream;
+
       const reader = new BrowserQRCodeReader();
       readerRef.current = reader;
-      controlsRef.current = await reader.decodeFromConstraints(
-        {
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        },
+      controlsRef.current = await reader.decodeFromStream(
+        stream,
         videoRef.current,
         (result) => {
           const value = normalizeEquipmentQr(result?.getText());
@@ -83,6 +87,8 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
     controlsRef.current?.stop();
     controlsRef.current = null;
     readerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
     if (videoRef.current) {
       const stream = videoRef.current.srcObject;
       if (stream instanceof MediaStream) {
@@ -178,7 +184,7 @@ function nextFrame() {
 function cameraErrorMessage(error: unknown) {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-      return "El navegador bloqueo la camara. Permite el acceso en la barra de direcciones y vuelve a intentar.";
+      return "El navegador tiene bloqueada la camara para este sitio. En Chrome/Edge toca el candado o ajustes del sitio, entra a Permisos, cambia Camara a Permitir y vuelve a intentar.";
     }
     if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
       return "No se encontro una camara disponible en este dispositivo.";

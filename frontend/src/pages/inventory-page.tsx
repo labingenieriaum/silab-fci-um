@@ -103,6 +103,15 @@ export function InventoryPage() {
     queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${form.equipoId}/units`)
   });
 
+  const selectedUnitMovementsQuery = useQuery({
+    queryKey: ["inventory-movements", "unit", form.equipoUnidadId],
+    enabled: Boolean(form.equipoUnidadId),
+    queryFn: () =>
+      apiRequest<PaginatedResponse<InventoryMovement>>(
+        `/inventory-movements?page=1&pageSize=15&equipoUnidadId=${encodeURIComponent(form.equipoUnidadId)}`
+      )
+  });
+
   const movementMutation = useMutation({
     mutationFn: async (payload: MovementFormState) => {
       const base = {
@@ -158,6 +167,10 @@ export function InventoryPage() {
   const movements = useMemo(() => movementsQuery.data?.data ?? [], [movementsQuery.data]);
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
   const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data]);
+  const selectedUnitMovements = useMemo(
+    () => selectedUnitMovementsQuery.data?.data ?? [],
+    [selectedUnitMovementsQuery.data]
+  );
   const equipmentOptions = useMemo(
     () =>
       equipment.map((item) => ({
@@ -386,6 +399,36 @@ export function InventoryPage() {
                   <p className="mt-2 text-xs text-amber-800">
                     Este equipo tiene control individual. Para salida, baja o traslado debes escoger la etiqueta exacta.
                   </p>
+                  {form.equipoUnidadId && (
+                    <div className="mt-3 rounded-md border bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">Historial de la etiqueta</p>
+                        {selectedUnitMovementsQuery.isFetching && (
+                          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        )}
+                      </div>
+                      <div className="mt-2 space-y-2">
+                        {selectedUnitMovements.map((movement) => (
+                          <div key={movement.id} className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={getMovementBadgeClass(movement.tipoMovimiento)}>
+                                {formatEnum(movement.tipoMovimiento)}
+                              </span>
+                              <span className="text-muted-foreground">{formatDateTime(movement.fecha)}</span>
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              {movement.descripcion || "Sin descripcion"}
+                            </div>
+                          </div>
+                        ))}
+                        {!selectedUnitMovements.length && !selectedUnitMovementsQuery.isFetching && (
+                          <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                            Esta etiqueta aun no tiene movimientos registrados.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
