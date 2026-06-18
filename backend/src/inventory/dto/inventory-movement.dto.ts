@@ -56,6 +56,11 @@ export class RegisterInventoryAdjustmentDto {
   @IsInt()
   equipoId!: number;
 
+  @Type(() => Number)
+  @IsInt()
+  @IsOptional()
+  equipoUnidadId?: number;
+
   @IsEnum(TipoMovimiento)
   tipoMovimiento!: TipoMovimiento;
 

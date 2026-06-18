@@ -875,9 +875,64 @@ export class InventoryService {
     }
 
     const equipment = await this.ensureEquipmentExists(user, dto.equipoId);
+    if (dto.equipoUnidadId) {
+      if (
+        !([TipoMovimiento.AJUSTE_NEGATIVO, TipoMovimiento.BAJA] as TipoMovimiento[]).includes(
+          dto.tipoMovimiento
+        )
+      ) {
+        throw new BadRequestException("La unidad exacta solo aplica para ajustes negativos o bajas.");
+      }
+      const unit = await this.findUnitOrThrow(user, dto.equipoUnidadId);
+      if (unit.equipoId !== dto.equipoId) {
+        throw new BadRequestException("La unidad no pertenece al equipo indicado.");
+      }
+      if (unit.estado !== EstadoEquipo.DISPONIBLE) {
+        throw new BadRequestException("Solo se pueden ajustar unidades disponibles.");
+      }
+      const nextUnitState =
+        dto.tipoMovimiento === TipoMovimiento.BAJA ? EstadoEquipo.BAJA : EstadoEquipo.PERDIDO;
+
+      return this.prisma.$transaction(async (tx) => {
+        const updatedUnit = await tx.equipoUnidad.update({
+          where: { id: dto.equipoUnidadId },
+          data: {
+            estado: nextUnitState,
+            observaciones: cleanNullableText(dto.descripcion) ?? unit.observaciones
+          },
+          select: equipmentUnitSelect
+        });
+
+        const updatedEquipment = await this.recalculateEquipmentCountsByUnits(tx, dto.equipoId);
+
+        const movement = await tx.inventarioMovimiento.create({
+          data: {
+            equipoId: dto.equipoId,
+            equipoUnidadId: dto.equipoUnidadId,
+            usuarioId: user.sub,
+            ubicacionOrigenId: unit.ubicacionId,
+            tipoMovimiento: dto.tipoMovimiento,
+            cantidad: 1,
+            cantidadAnterior: updatedEquipment.cantidadDisponible + 1,
+            cantidadNueva: updatedEquipment.cantidadDisponible,
+            descripcion:
+              cleanNullableText(dto.descripcion) ??
+              (dto.tipoMovimiento === TipoMovimiento.BAJA ? "Baja de unidad" : "Ajuste negativo de unidad")
+          },
+          select: movementSelect
+        });
+
+        return {
+          unit: updatedUnit,
+          equipment: updatedEquipment,
+          movement
+        };
+      });
+    }
+
     if (equipment.requiereSerial) {
       throw new BadRequestException(
-        "Los ajustes de equipos con control individual deben hacerse sobre unidades individuales."
+        "Selecciona la unidad exacta para ajustar o dar de baja un equipo con control individual."
       );
     }
 

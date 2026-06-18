@@ -12,6 +12,7 @@ import { formatDateTime, formatEnum } from "@/lib/format";
 import { formatLocationPathById } from "@/lib/location-path";
 import type {
   Equipment,
+  EquipmentUnit,
   InventoryMovement,
   Location,
   PaginatedResponse,
@@ -23,6 +24,7 @@ type MovementAction = "ENTRADA" | "AJUSTE_POSITIVO" | "AJUSTE_NEGATIVO" | "BAJA"
 interface MovementFormState {
   action: MovementAction;
   equipoId: string;
+  equipoUnidadId: string;
   cantidad: string;
   ubicacionDestinoId: string;
   descripcion: string;
@@ -31,6 +33,7 @@ interface MovementFormState {
 const initialForm: MovementFormState = {
   action: "ENTRADA",
   equipoId: "",
+  equipoUnidadId: "",
   cantidad: "1",
   ubicacionDestinoId: "",
   descripcion: ""
@@ -86,13 +89,25 @@ export function InventoryPage() {
 
   const locationsQuery = useQuery({
     queryKey: ["locations"],
-    queryFn: () => apiRequest<PaginatedResponse<Location>>("/locations?page=1&pageSize=100")
+    queryFn: () => apiRequest<PaginatedResponse<Location>>("/locations?page=1&pageSize=1000")
+  });
+
+  const selectedEquipment = useMemo(
+    () => equipmentQuery.data?.data.find((item) => item.id === Number(form.equipoId)) ?? null,
+    [equipmentQuery.data, form.equipoId]
+  );
+
+  const unitsQuery = useQuery({
+    queryKey: ["equipment-units", form.equipoId],
+    enabled: Boolean(selectedEquipment?.requiereSerial && form.equipoId),
+    queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${form.equipoId}/units`)
   });
 
   const movementMutation = useMutation({
     mutationFn: async (payload: MovementFormState) => {
       const base = {
         equipoId: Number(payload.equipoId),
+        equipoUnidadId: payload.equipoUnidadId ? Number(payload.equipoUnidadId) : undefined,
         cantidad: Number(payload.cantidad),
         descripcion: payload.descripcion || undefined
       };
@@ -132,6 +147,7 @@ export function InventoryPage() {
       setForm(initialForm);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
+        queryClient.invalidateQueries({ queryKey: ["equipment-units"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
       ]);
     },
@@ -141,6 +157,7 @@ export function InventoryPage() {
   const equipment = useMemo(() => equipmentQuery.data?.data ?? [], [equipmentQuery.data]);
   const movements = useMemo(() => movementsQuery.data?.data ?? [], [movementsQuery.data]);
   const locations = useMemo(() => locationsQuery.data?.data ?? [], [locationsQuery.data]);
+  const units = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data]);
   const equipmentOptions = useMemo(
     () =>
       equipment.map((item) => ({
@@ -151,6 +168,23 @@ export function InventoryPage() {
       })),
     [equipment]
   );
+  const unitOptions = useMemo(() => {
+    const requiresAvailable = form.action === "AJUSTE_NEGATIVO" || form.action === "BAJA";
+    return units
+      .filter((unit) => (requiresAvailable ? unit.estado === "DISPONIBLE" : unit.estado !== "PRESTADO"))
+      .map((unit) => ({
+        value: String(unit.id),
+        label: unit.codigoInterno,
+        description: [
+          formatEnum(unit.estado),
+          unit.serial ? `Serial: ${unit.serial}` : null,
+          unit.ubicacion ? formatLocationPathById(unit.ubicacionId, locations, unit.ubicacion.nombre) : null
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        searchText: `${unit.codigoInterno} ${unit.serial ?? ""} ${unit.estado} ${unit.observaciones ?? ""}`
+      }));
+  }, [form.action, locations, units]);
   const movementActionOptions = useMemo(
     () =>
       movementActions.map((action) => ({
@@ -182,7 +216,8 @@ export function InventoryPage() {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "action" ? { ubicacionDestinoId: "" } : {})
+      ...(key === "action" ? { ubicacionDestinoId: "", equipoUnidadId: "", cantidad: "1" } : {}),
+      ...(key === "equipoId" ? { equipoUnidadId: "", cantidad: "1" } : {})
     }));
   }
 
@@ -195,6 +230,22 @@ export function InventoryPage() {
     }
     if (form.action === "TRASLADO" && !form.ubicacionDestinoId) {
       setFeedback("Selecciona ubicacion destino para el traslado.");
+      return;
+    }
+    if (selectedEquipment?.requiereSerial && form.action === "ENTRADA") {
+      setFeedback("Los ingresos de equipos con control individual se hacen creando una unidad etiquetada en Equipos.");
+      return;
+    }
+    if (selectedEquipment?.requiereSerial && form.action === "AJUSTE_POSITIVO") {
+      setFeedback("Los ajustes positivos de equipos con control individual se hacen agregando una unidad etiquetada en Equipos.");
+      return;
+    }
+    if (
+      selectedEquipment?.requiereSerial &&
+      (form.action === "AJUSTE_NEGATIVO" || form.action === "BAJA" || form.action === "TRASLADO") &&
+      !form.equipoUnidadId
+    ) {
+      setFeedback("Selecciona la etiqueta/unidad exacta para este movimiento.");
       return;
     }
     movementMutation.mutate(form);
@@ -312,6 +363,32 @@ export function InventoryPage() {
                 />
               </Field>
 
+              {selectedEquipment?.requiereSerial && (
+                <div className="rounded-md border bg-amber-50/70 p-3">
+                  <Field label="Etiqueta / unidad exacta">
+                    <SearchableSelect
+                      options={unitOptions}
+                      value={form.equipoUnidadId}
+                      onChange={(value) => updateForm("equipoUnidadId", value)}
+                      placeholder={
+                        form.action === "ENTRADA"
+                          ? "Crea la unidad desde Equipos"
+                          : "Seleccionar etiqueta institucional"
+                      }
+                      searchPlaceholder="Buscar por etiqueta, serial u observacion"
+                      emptyLabel="Sin unidades disponibles para este movimiento"
+                      disabled={form.action === "ENTRADA" || form.action === "AJUSTE_POSITIVO"}
+                      required={
+                        form.action === "AJUSTE_NEGATIVO" || form.action === "BAJA" || form.action === "TRASLADO"
+                      }
+                    />
+                  </Field>
+                  <p className="mt-2 text-xs text-amber-800">
+                    Este equipo tiene control individual. Para salida, baja o traslado debes escoger la etiqueta exacta.
+                  </p>
+                </div>
+              )}
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tipo">
                   <SearchableSelect
@@ -329,6 +406,7 @@ export function InventoryPage() {
                     type="number"
                     min="1"
                     value={form.cantidad}
+                    disabled={Boolean(selectedEquipment?.requiereSerial)}
                     onChange={(event) => updateForm("cantidad", event.target.value)}
                     required
                   />

@@ -35,6 +35,7 @@ import type {
   EquipmentCategory,
   Laboratory,
   Location,
+  EquipmentUnit,
   PaginatedResponse
 } from "@/types/inventory";
 
@@ -70,6 +71,14 @@ interface EquipmentFormState {
   unidades: UnitFormState[];
 }
 
+interface UnitEditorState {
+  id?: number;
+  codigoInterno: string;
+  serial: string;
+  ubicacionId: string;
+  observaciones: string;
+}
+
 const initialForm: EquipmentFormState = {
   categoriaId: "",
   ubicacionId: "",
@@ -96,11 +105,20 @@ const initialForm: EquipmentFormState = {
   unidades: []
 };
 
+const initialUnitEditor: UnitEditorState = {
+  codigoInterno: "",
+  serial: "",
+  ubicacionId: "",
+  observaciones: ""
+};
+
 export function EquipmentPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<EquipmentFormState>(initialForm);
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
+  const [unitEquipment, setUnitEquipment] = useState<Equipment | null>(null);
+  const [unitEditor, setUnitEditor] = useState<UnitEditorState>(initialUnitEditor);
   const [formOpen, setFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -130,6 +148,12 @@ export function EquipmentPage() {
   const agreementsQuery = useQuery({
     queryKey: ["agreements", "active"],
     queryFn: () => apiRequest<PaginatedResponse<Agreement>>("/agreements?page=1&pageSize=200&activo=true")
+  });
+
+  const unitsQuery = useQuery({
+    queryKey: ["equipment-units", unitEquipment?.id],
+    enabled: Boolean(unitEquipment?.id),
+    queryFn: () => apiRequest<EquipmentUnit[]>(`/equipment/${unitEquipment?.id}/units`)
   });
 
   const createMutation = useMutation({
@@ -246,6 +270,55 @@ export function EquipmentPage() {
       setFeedback(error instanceof Error ? error.message : "No fue posible eliminar el equipo.")
   });
 
+  const saveUnitMutation = useMutation({
+    mutationFn: async (payload: UnitEditorState) => {
+      if (!unitEquipment) {
+        throw new Error("Selecciona un equipo.");
+      }
+      const body = JSON.stringify({
+        codigoInterno: payload.codigoInterno,
+        serial: payload.serial || null,
+        ubicacionId: payload.ubicacionId ? Number(payload.ubicacionId) : undefined,
+        observaciones: payload.observaciones || null
+      });
+      if (payload.id) {
+        return apiRequest<EquipmentUnit>(`/equipment-units/${payload.id}`, {
+          method: "PATCH",
+          body
+        });
+      }
+      return apiRequest<EquipmentUnit>(`/equipment/${unitEquipment.id}/units`, {
+        method: "POST",
+        body
+      });
+    },
+    onSuccess: async () => {
+      setFeedback("Unidad actualizada correctamente.");
+      setUnitEditor(initialUnitEditor);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["equipment"] }),
+        queryClient.invalidateQueries({ queryKey: ["equipment-units"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
+      ]);
+    },
+    onError: (error) =>
+      setFeedback(error instanceof Error ? error.message : "No fue posible guardar la unidad.")
+  });
+
+  const removeUnitMutation = useMutation({
+    mutationFn: (id: number) => apiRequest<EquipmentUnit>(`/equipment-units/${id}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setFeedback("Unidad dada de baja correctamente.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["equipment"] }),
+        queryClient.invalidateQueries({ queryKey: ["equipment-units"] }),
+        queryClient.invalidateQueries({ queryKey: ["inventory-movements"] })
+      ]);
+    },
+    onError: (error) =>
+      setFeedback(error instanceof Error ? error.message : "No fue posible dar de baja la unidad.")
+  });
+
   const bulkCreateMutation = useMutation({
     mutationFn: (rows: Array<Record<string, unknown>>) =>
       apiRequest<{ total: number; created: number; errors: number }>("/equipment/bulk", {
@@ -290,6 +363,7 @@ export function EquipmentPage() {
   );
   const isEditing = editingEquipment !== null;
   const isSaving = createMutation.isPending || updateMutation.isPending;
+  const managedUnits = useMemo(() => unitsQuery.data ?? [], [unitsQuery.data]);
 
   const summary = useMemo(
     () =>
@@ -349,6 +423,35 @@ export function EquipmentPage() {
         unitIndex === index ? { ...unit, [key]: value } : unit
       )
     }));
+  }
+
+  function updateUnitEditor<K extends keyof UnitEditorState>(key: K, value: UnitEditorState[K]) {
+    setUnitEditor((current) => ({ ...current, [key]: value }));
+  }
+
+  function openUnitManager(item: Equipment) {
+    setUnitEquipment(item);
+    setUnitEditor(initialUnitEditor);
+  }
+
+  function editUnit(unit: EquipmentUnit) {
+    setUnitEditor({
+      id: unit.id,
+      codigoInterno: unit.codigoInterno,
+      serial: unit.serial ?? "",
+      ubicacionId: unit.ubicacionId ? String(unit.ubicacionId) : "",
+      observaciones: unit.observaciones ?? ""
+    });
+  }
+
+  function handleUnitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFeedback(null);
+    if (!unitEditor.codigoInterno.trim()) {
+      setFeedback("Ingresa el codigo de la etiqueta.");
+      return;
+    }
+    saveUnitMutation.mutate(unitEditor);
   }
 
   function beginEdit(item: Equipment) {
@@ -849,6 +952,17 @@ export function EquipmentPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-1">
+                          {item.requiereSerial && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Gestionar unidades etiquetadas"
+                              title="Gestionar unidades etiquetadas"
+                              onClick={() => openUnitManager(item)}
+                            >
+                              <Boxes className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1141,6 +1255,154 @@ export function EquipmentPage() {
           </div>
         )}
       </section>
+
+      {unitEquipment && (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/45 p-4">
+          <div className="mx-auto my-8 max-w-5xl rounded-lg border bg-background shadow-xl">
+            <div className="flex items-start justify-between border-b px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">Unidades etiquetadas</h2>
+                <p className="text-sm text-muted-foreground">
+                  {unitEquipment.codigoInterno} - {unitEquipment.nombre}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setUnitEquipment(null);
+                  setUnitEditor(initialUnitEditor);
+                }}
+                aria-label="Cerrar"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold">Etiqueta</th>
+                      <th className="px-4 py-3 text-left font-semibold">Estado</th>
+                      <th className="px-4 py-3 text-left font-semibold">Ubicacion</th>
+                      <th className="px-4 py-3 text-left font-semibold">Observaciones</th>
+                      <th className="px-4 py-3 text-right font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {managedUnits.map((unit) => (
+                      <tr key={unit.id} className="border-t bg-card">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{unit.codigoInterno}</div>
+                          {unit.serial && <div className="text-xs text-muted-foreground">Serial: {unit.serial}</div>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={getStateBadgeClass(unit.estado)}>{formatEnum(unit.estado)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {unit.ubicacion
+                            ? formatLocationPathById(unit.ubicacionId, locations, unit.ubicacion.nombre)
+                            : "Sin ubicacion"}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{unit.observaciones || "Sin observaciones"}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              title="Editar unidad"
+                              aria-label="Editar unidad"
+                              onClick={() => editUnit(unit)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              title="Dar de baja unidad"
+                              aria-label="Dar de baja unidad"
+                              disabled={unit.estado === "PRESTADO" || unit.estado === "EN_MANTENIMIENTO"}
+                              onClick={() => {
+                                if (window.confirm(`Dar de baja la unidad ${unit.codigoInterno}?`)) {
+                                  removeUnitMutation.mutate(unit.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!managedUnits.length && (
+                      <tr>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                          No hay unidades registradas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <form className="space-y-3 rounded-md border bg-card p-4" onSubmit={handleUnitSubmit}>
+                <div>
+                  <h3 className="font-semibold">{unitEditor.id ? "Editar unidad" : "Nueva unidad"}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Usa el codigo de la etiqueta institucional pegada al equipo.
+                  </p>
+                </div>
+                <Field label="Codigo etiqueta">
+                  <input
+                    className="input-control"
+                    value={unitEditor.codigoInterno}
+                    onChange={(event) => updateUnitEditor("codigoInterno", event.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="Serial opcional">
+                  <input
+                    className="input-control"
+                    value={unitEditor.serial}
+                    onChange={(event) => updateUnitEditor("serial", event.target.value)}
+                  />
+                </Field>
+                <Field label="Ubicacion">
+                  <LocationCombobox
+                    locations={locations}
+                    value={unitEditor.ubicacionId}
+                    onChange={(value) => updateUnitEditor("ubicacionId", value)}
+                    placeholder="Usar ubicacion del equipo"
+                    emptyLabel="Usar ubicacion del equipo"
+                    searchPlaceholder="Buscar ubicacion"
+                  />
+                </Field>
+                <Field label="Observaciones">
+                  <textarea
+                    className="textarea-control"
+                    value={unitEditor.observaciones}
+                    onChange={(event) => updateUnitEditor("observaciones", event.target.value)}
+                  />
+                </Field>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button type="button" variant="outline" onClick={() => setUnitEditor(initialUnitEditor)}>
+                    Limpiar
+                  </Button>
+                  <Button type="submit" disabled={saveUnitMutation.isPending}>
+                    {saveUnitMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Guardar
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
