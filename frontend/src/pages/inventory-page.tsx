@@ -25,6 +25,8 @@ interface MovementFormState {
   action: MovementAction;
   equipoId: string;
   equipoUnidadId: string;
+  unidadCodigoInterno: string;
+  unidadSerial: string;
   cantidad: string;
   ubicacionDestinoId: string;
   descripcion: string;
@@ -34,6 +36,8 @@ const initialForm: MovementFormState = {
   action: "ENTRADA",
   equipoId: "",
   equipoUnidadId: "",
+  unidadCodigoInterno: "",
+  unidadSerial: "",
   cantidad: "1",
   ubicacionDestinoId: "",
   descripcion: ""
@@ -74,6 +78,7 @@ const movementActions: Array<{
 export function InventoryPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<MovementFormState>(initialForm);
+  const [formOpen, setFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const equipmentQuery = useQuery({
@@ -114,6 +119,21 @@ export function InventoryPage() {
 
   const movementMutation = useMutation({
     mutationFn: async (payload: MovementFormState) => {
+      const isIndividualEntry =
+        selectedEquipment?.requiereSerial &&
+        (payload.action === "ENTRADA" || payload.action === "AJUSTE_POSITIVO");
+      if (isIndividualEntry) {
+        return apiRequest(`/equipment/${payload.equipoId}/units`, {
+          method: "POST",
+          body: JSON.stringify({
+            codigoInterno: payload.unidadCodigoInterno,
+            serial: payload.unidadSerial || undefined,
+            ubicacionId: payload.ubicacionDestinoId ? Number(payload.ubicacionDestinoId) : undefined,
+            observaciones: payload.descripcion || undefined
+          })
+        });
+      }
+
       const base = {
         equipoId: Number(payload.equipoId),
         equipoUnidadId: payload.equipoUnidadId ? Number(payload.equipoUnidadId) : undefined,
@@ -154,6 +174,7 @@ export function InventoryPage() {
     onSuccess: async () => {
       setFeedback("Movimiento registrado correctamente.");
       setForm(initialForm);
+      setFormOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["equipment"] }),
         queryClient.invalidateQueries({ queryKey: ["equipment-units"] }),
@@ -229,8 +250,12 @@ export function InventoryPage() {
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "action" ? { ubicacionDestinoId: "", equipoUnidadId: "", cantidad: "1" } : {}),
-      ...(key === "equipoId" ? { equipoUnidadId: "", cantidad: "1" } : {})
+      ...(key === "action"
+        ? { ubicacionDestinoId: "", equipoUnidadId: "", unidadCodigoInterno: "", unidadSerial: "", cantidad: "1" }
+        : {}),
+      ...(key === "equipoId"
+        ? { equipoUnidadId: "", unidadCodigoInterno: "", unidadSerial: "", cantidad: "1" }
+        : {})
     }));
   }
 
@@ -245,12 +270,12 @@ export function InventoryPage() {
       setFeedback("Selecciona ubicacion destino para el traslado.");
       return;
     }
-    if (selectedEquipment?.requiereSerial && form.action === "ENTRADA") {
-      setFeedback("Los ingresos de equipos con control individual se hacen creando una unidad etiquetada en Equipos.");
-      return;
-    }
-    if (selectedEquipment?.requiereSerial && form.action === "AJUSTE_POSITIVO") {
-      setFeedback("Los ajustes positivos de equipos con control individual se hacen agregando una unidad etiquetada en Equipos.");
+    if (
+      selectedEquipment?.requiereSerial &&
+      (form.action === "ENTRADA" || form.action === "AJUSTE_POSITIVO") &&
+      !form.unidadCodigoInterno.trim()
+    ) {
+      setFeedback("Ingresa el codigo de la etiqueta institucional para crear la unidad.");
       return;
     }
     if (
@@ -266,11 +291,17 @@ export function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <section>
-        <h1 className="text-2xl font-semibold tracking-normal">Inventario</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Control operativo de existencias, entradas, ajustes, bajas y traslados.
-        </p>
+      <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-normal">Inventario</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Control operativo de existencias, entradas, ajustes, bajas y traslados.
+          </p>
+        </div>
+        <Button type="button" onClick={() => setFormOpen(true)}>
+          <ArrowRightLeft className="h-4 w-4" />
+          Registrar movimiento
+        </Button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -280,7 +311,7 @@ export function InventoryPage() {
         <Metric label="Alertas stock" value={summary.alertas} icon={<RotateCw className="h-4 w-4" />} />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <section>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Movimientos recientes</CardTitle>
@@ -354,13 +385,30 @@ export function InventoryPage() {
             </div>
           </CardContent>
         </Card>
+      </section>
 
-        <Card>
+      {formOpen && (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/45 p-4">
+          <Card className="mx-auto my-8 max-w-3xl">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4 text-primary" />
-              Registrar movimiento
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2">
+                <ArrowRightLeft className="h-4 w-4 text-primary" />
+                Registrar movimiento
+              </CardTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setFormOpen(false);
+                  setForm(initialForm);
+                }}
+                aria-label="Cerrar"
+              >
+                X
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -376,24 +424,46 @@ export function InventoryPage() {
                 />
               </Field>
 
-              {selectedEquipment?.requiereSerial && (
+              {selectedEquipment?.requiereSerial &&
+                (form.action === "ENTRADA" || form.action === "AJUSTE_POSITIVO") && (
+                  <div className="rounded-md border bg-green-50/70 p-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Codigo etiqueta nueva">
+                        <input
+                          className="input-control"
+                          value={form.unidadCodigoInterno}
+                          onChange={(event) => updateForm("unidadCodigoInterno", event.target.value)}
+                          placeholder="Ej. 2805006622"
+                          required
+                        />
+                      </Field>
+                      <Field label="Serial opcional">
+                        <input
+                          className="input-control"
+                          value={form.unidadSerial}
+                          onChange={(event) => updateForm("unidadSerial", event.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </Field>
+                    </div>
+                    <p className="mt-2 text-xs text-green-800">
+                      Este movimiento crea una unidad fisica con etiqueta propia y deja trazabilidad de entrada.
+                    </p>
+                  </div>
+                )}
+
+              {selectedEquipment?.requiereSerial &&
+                (form.action === "AJUSTE_NEGATIVO" || form.action === "BAJA" || form.action === "TRASLADO") && (
                 <div className="rounded-md border bg-amber-50/70 p-3">
                   <Field label="Etiqueta / unidad exacta">
                     <SearchableSelect
                       options={unitOptions}
                       value={form.equipoUnidadId}
                       onChange={(value) => updateForm("equipoUnidadId", value)}
-                      placeholder={
-                        form.action === "ENTRADA"
-                          ? "Crea la unidad desde Equipos"
-                          : "Seleccionar etiqueta institucional"
-                      }
+                      placeholder="Seleccionar etiqueta institucional"
                       searchPlaceholder="Buscar por etiqueta, serial u observacion"
                       emptyLabel="Sin unidades disponibles para este movimiento"
-                      disabled={form.action === "ENTRADA" || form.action === "AJUSTE_POSITIVO"}
-                      required={
-                        form.action === "AJUSTE_NEGATIVO" || form.action === "BAJA" || form.action === "TRASLADO"
-                      }
+                      required
                     />
                   </Field>
                   <p className="mt-2 text-xs text-amber-800">
@@ -463,7 +533,7 @@ export function InventoryPage() {
                 </div>
               )}
 
-              {(form.action === "ENTRADA" || form.action === "TRASLADO") && (
+              {(form.action === "ENTRADA" || form.action === "AJUSTE_POSITIVO" || form.action === "TRASLADO") && (
                 <Field label={form.action === "TRASLADO" ? "Nueva ubicacion del equipo" : "Ubicacion de ingreso"}>
                   <LocationCombobox
                     locations={locations}
@@ -503,8 +573,9 @@ export function InventoryPage() {
               </Button>
             </form>
           </CardContent>
-        </Card>
-      </section>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

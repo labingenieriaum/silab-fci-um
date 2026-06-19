@@ -1269,7 +1269,7 @@ export function EquipmentPage() {
 
       {unitEquipment && (
         <div className="fixed inset-0 z-40 overflow-y-auto bg-black/45 p-4">
-          <div className="mx-auto my-8 max-w-5xl rounded-lg border bg-background shadow-xl">
+          <div className="mx-auto my-6 w-[min(96vw,1500px)] rounded-lg border bg-background shadow-xl">
             <div className="flex items-start justify-between border-b px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold">Unidades etiquetadas</h2>
@@ -1291,34 +1291,36 @@ export function EquipmentPage() {
               </Button>
             </div>
 
-            <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[760px] text-sm">
+            <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0 overflow-hidden rounded-md border">
+                <table className="w-full table-fixed text-sm">
                   <thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold">Etiqueta</th>
-                      <th className="px-4 py-3 text-left font-semibold">Estado</th>
-                      <th className="px-4 py-3 text-left font-semibold">Ubicacion</th>
-                      <th className="px-4 py-3 text-left font-semibold">Observaciones</th>
-                      <th className="px-4 py-3 text-right font-semibold">Acciones</th>
+                      <th className="w-[17%] px-4 py-3 text-left font-semibold">Etiqueta</th>
+                      <th className="w-[13%] px-4 py-3 text-left font-semibold">Estado</th>
+                      <th className="w-[20%] px-4 py-3 text-left font-semibold">Ubicacion</th>
+                      <th className="w-[38%] px-4 py-3 text-left font-semibold">Observaciones</th>
+                      <th className="w-[12%] px-4 py-3 text-right font-semibold">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {managedUnits.map((unit) => (
                       <tr key={unit.id} className="border-t bg-card">
-                        <td className="px-4 py-3">
+                        <td className="break-words px-4 py-3">
                           <div className="font-medium">{unit.codigoInterno}</div>
                           {unit.serial && <div className="text-xs text-muted-foreground">Serial: {unit.serial}</div>}
                         </td>
                         <td className="px-4 py-3">
                           <span className={getStateBadgeClass(unit.estado)}>{formatEnum(unit.estado)}</span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="break-words px-4 py-3">
                           {unit.ubicacion
                             ? formatLocationPathById(unit.ubicacionId, locations, unit.ubicacion.nombre)
                             : "Sin ubicacion"}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">{unit.observaciones || "Sin observaciones"}</td>
+                        <td className="whitespace-normal break-words px-4 py-3 text-muted-foreground">
+                          {unit.observaciones || "Sin observaciones"}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
                             <Button
