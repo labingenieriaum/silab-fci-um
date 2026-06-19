@@ -36,28 +36,20 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
     }
 
     stopScanner();
-    setScannerStarted(true);
     setLoading(true);
     setFeedback("Cuando el navegador lo pregunte, selecciona Permitir para usar la camara.");
-    await nextFrame();
 
     if (!videoRef.current) {
       setLoading(false);
-      setScannerStarted(false);
       setFeedback("No fue posible inicializar la vista de camara.");
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      const stream = await openCameraStream();
       streamRef.current = stream;
+      setScannerStarted(true);
+      await nextFrame();
 
       const reader = new BrowserQRCodeReader();
       readerRef.current = reader;
@@ -121,7 +113,7 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
               </Button>
             </div>
             <div className="space-y-3 p-4">
-              {!scannerStarted ? (
+              {!scannerStarted && (
                 <div className="rounded-md border bg-muted/30 p-4">
                   <div className="flex items-start gap-3">
                     <Camera className="mt-1 h-5 w-5 text-primary" />
@@ -139,19 +131,18 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="relative overflow-hidden rounded-md border bg-black">
-                  <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline />
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                    <div className="h-40 w-40 rounded-lg border-2 border-primary/80 shadow-[0_0_0_999px_rgba(0,0,0,0.18)]" />
-                  </div>
-                  {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    </div>
-                  )}
-                </div>
               )}
+              <div className={`relative overflow-hidden rounded-md border bg-black ${scannerStarted ? "" : "hidden"}`}>
+                <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline />
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <div className="h-40 w-40 rounded-lg border-2 border-primary/80 shadow-[0_0_0_999px_rgba(0,0,0,0.18)]" />
+                </div>
+                {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </div>
+                )}
+              </div>
               {feedback && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                   {feedback}
@@ -179,6 +170,26 @@ function normalizeEquipmentQr(rawValue?: string) {
 
 function nextFrame() {
   return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+async function openCameraStream() {
+  const preferredConstraints: MediaStreamConstraints = {
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    },
+    audio: false
+  };
+
+  try {
+    return await navigator.mediaDevices.getUserMedia(preferredConstraints);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "OverconstrainedError") {
+      return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    }
+    throw error;
+  }
 }
 
 function cameraErrorMessage(error: unknown) {
