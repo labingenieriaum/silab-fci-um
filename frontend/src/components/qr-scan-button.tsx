@@ -30,8 +30,15 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
   }, [open]);
 
   async function startScanner() {
+    if (!isSecureCameraContext()) {
+      setFeedback(
+        "La camara solo puede abrirse en HTTPS o en localhost. En celulares no funcionara si entras por una IP con http://."
+      );
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
-      setFeedback("Este navegador no permite abrir la camara desde esta pagina.");
+      setFeedback("Este navegador no permite abrir la camara desde esta pagina. Revisa que uses HTTPS y un navegador actualizado.");
       return;
     }
 
@@ -46,6 +53,13 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
     }
 
     try {
+      const permissionState = await getCameraPermissionState();
+      if (permissionState === "denied") {
+        setFeedback(cameraPermissionBlockedMessage());
+        setLoading(false);
+        return;
+      }
+
       const stream = await openCameraStream();
       streamRef.current = stream;
       setScannerStarted(true);
@@ -133,7 +147,7 @@ export function QrScanButton({ onScan, title = "Escanear QR de equipo" }: QrScan
                 </div>
               )}
               <div className={`relative overflow-hidden rounded-md border bg-black ${scannerStarted ? "" : "hidden"}`}>
-                <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline />
+                <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline autoPlay />
                 <div className="pointer-events-none absolute inset-0 grid place-items-center">
                   <div className="h-40 w-40 rounded-lg border-2 border-primary/80 shadow-[0_0_0_999px_rgba(0,0,0,0.18)]" />
                 </div>
@@ -172,6 +186,23 @@ function nextFrame() {
   return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
+function isSecureCameraContext() {
+  return window.isSecureContext || ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+async function getCameraPermissionState() {
+  if (!navigator.permissions?.query) {
+    return "prompt";
+  }
+
+  try {
+    const permission = await navigator.permissions.query({ name: "camera" as PermissionName });
+    return permission.state;
+  } catch {
+    return "prompt";
+  }
+}
+
 async function openCameraStream() {
   const preferredConstraints: MediaStreamConstraints = {
     video: {
@@ -195,7 +226,7 @@ async function openCameraStream() {
 function cameraErrorMessage(error: unknown) {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
-      return "El navegador tiene bloqueada la camara para este sitio. En Chrome/Edge toca el candado o ajustes del sitio, entra a Permisos, cambia Camara a Permitir y vuelve a intentar.";
+      return cameraPermissionBlockedMessage();
     }
     if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
       return "No se encontro una camara disponible en este dispositivo.";
@@ -208,4 +239,8 @@ function cameraErrorMessage(error: unknown) {
     }
   }
   return "No fue posible abrir la camara. Revisa permisos del navegador o busca el equipo manualmente.";
+}
+
+function cameraPermissionBlockedMessage() {
+  return "El navegador tiene bloqueada la camara para este sitio. En Chrome/Edge toca el candado o ajustes del sitio, entra a Permisos, cambia Camara a Permitir y vuelve a intentar. En Firefox revisa el icono de permisos junto a la barra de direccion.";
 }
